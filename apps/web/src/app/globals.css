@@ -1,48 +1,87 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-background: #ffffff;
-  --color-foreground: #1e293b;
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
   --font-sans: var(--font-chakra), sans-serif;
   --font-mono: var(--font-geist-mono);
 }
 
-body {
-  background: var(--color-background);
-  color: var(--color-foreground);
-  font-family: var(--font-sans);
+/* ─── Light Mode (default) ─── */
+:root {
+  --bg: #fafafa;
+  --fg: #1a1a2e;
+  --surface: #ffffff;
+  --surface-2: #f5f5f7;
+  --border: #e5e5ea;
+  --border-subtle: #f0f0f3;
+  --text-primary: #1a1a2e;
+  --text-secondary: #6b7280;
+  --text-tertiary: #9ca3af;
+  --text-muted: #c4c4cc;
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --success: #10b981;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --chat-user-bg: #f0f0f3;
+  --chat-agent-bg: #ffffff;
+  --chat-agent-border: #e5e5ea;
+  --scrollbar-track: #f5f5f7;
+  --scrollbar-thumb: #d1d5db;
+  --scrollbar-hover: #9ca3af;
 }
 
-/* Custom scrollbar — minimal */
+/* ─── Dark Mode (TradingView style) ─── */
+html.dark {
+  --bg: #131722;
+  --fg: #d1d4dc;
+  --surface: #1e222d;
+  --surface-2: #262b3e;
+  --border: #2a2e39;
+  --border-subtle: #232632;
+  --text-primary: #d1d4dc;
+  --text-secondary: #787b86;
+  --text-tertiary: #5d606b;
+  --text-muted: #434651;
+  --accent: #2962ff;
+  --accent-hover: #1e53e5;
+  --success: #26a69a;
+  --danger: #ef5350;
+  --warning: #ff9800;
+  --chat-user-bg: #262b3e;
+  --chat-agent-bg: #1e222d;
+  --chat-agent-border: #2a2e39;
+  --scrollbar-track: #1e222d;
+  --scrollbar-thumb: #363a45;
+  --scrollbar-hover: #4c525e;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Scrollbar ─── */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 #f8fafc;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
+*::-webkit-scrollbar { width: 5px; height: 5px; }
+*::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+*::-webkit-scrollbar-thumb { background-color: var(--scrollbar-thumb); border-radius: 3px; }
+*::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-hover); }
 
-*::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-
-*::-webkit-scrollbar-track {
-  background: #f8fafc;
-}
-
-*::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1;
-  border-radius: 3px;
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background-color: #94a3b8;
-}
-
-/* Prevent layout shift */
+/* ─── Prevent layout shift ─── */
 html {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  background: var(--color-background);
+  background: var(--bg);
 }
 body {
   height: 100%;

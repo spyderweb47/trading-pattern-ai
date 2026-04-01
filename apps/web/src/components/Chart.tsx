@@ -6,6 +6,7 @@ import {
   createSeriesMarkers,
   CandlestickSeries,
   LineSeries,
+  HistogramSeries,
   type IChartApi,
   type ISeriesApi,
   type CandlestickData,
@@ -49,6 +50,7 @@ export function Chart({
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const indicatorSeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
   const patternPrimitiveRef = useRef<PatternSelectorPrimitive | null>(null);
   const drawingPrimitiveRef = useRef<DrawingToolsPrimitive | null>(null);
@@ -60,6 +62,9 @@ export function Chart({
   const setChartFocus = useStore((s) => s.setChartFocus);
   const activeDrawingTool = useStore((s) => s.activeDrawingTool);
   const setActiveDrawingTool = useStore((s) => s.setActiveDrawingTool);
+  const datasets = useStore((s) => s.datasets);
+  const activeDatasetId = useStore((s) => s.activeDataset);
+  const activeDs = datasets.find((d) => d.id === activeDatasetId);
   const setDrawings = useStore((s) => s.setDrawings);
   const setChatInputDraft = useStore((s) => s.setChatInputDraft);
   const addMessage = useStore((s) => s.addMessage);
@@ -73,35 +78,52 @@ export function Chart({
 
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: "#ffffff" },
-        textColor: "#64748b",
+        background: { type: ColorType.Solid, color: "#131722" },
+        textColor: "#787b86",
         fontFamily: "'Chakra Petch', sans-serif",
+        fontSize: 11,
       },
       grid: {
-        vertLines: { color: "#f1f5f9" },
-        horzLines: { color: "#f1f5f9" },
+        vertLines: { color: "#1e222d", style: 0 },
+        horzLines: { color: "#1e222d", style: 0 },
       },
       crosshair: {
-        vertLine: { color: "#94a3b8", labelBackgroundColor: "#475569" },
-        horzLine: { color: "#94a3b8", labelBackgroundColor: "#475569" },
+        mode: 0,
+        vertLine: { color: "#758696", width: 1, style: 3, labelBackgroundColor: "#2a2e39" },
+        horzLine: { color: "#758696", width: 1, style: 3, labelBackgroundColor: "#2a2e39" },
       },
       timeScale: {
-        borderColor: "#e2e8f0",
+        borderColor: "#2a2e39",
         timeVisible: true,
+        secondsVisible: false,
       },
       rightPriceScale: {
-        borderColor: "#e2e8f0",
+        borderColor: "#2a2e39",
+        scaleMargins: { top: 0.1, bottom: 0.2 },
       },
     });
 
     const series = chart.addSeries(CandlestickSeries, {
-      upColor: "#22c55e",
-      downColor: "#ef4444",
-      borderUpColor: "#16a34a",
-      borderDownColor: "#dc2626",
-      wickUpColor: "#22c55e",
-      wickDownColor: "#ef4444",
+      upColor: "#26a69a",
+      downColor: "#ef5350",
+      borderUpColor: "#26a69a",
+      borderDownColor: "#ef5350",
+      wickUpColor: "#26a69a",
+      wickDownColor: "#ef5350",
     });
+
+    // Volume histogram series
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: "volume" },
+      priceScaleId: "volume",
+    });
+    chart.priceScale("volume").applyOptions({
+      scaleMargins: { top: 0.85, bottom: 0 },
+      drawTicks: false,
+      borderVisible: false,
+      visible: false,
+    });
+    volumeSeriesRef.current = volumeSeries;
 
     // Pattern selector primitive
     const primitive = new PatternSelectorPrimitive();
@@ -234,6 +256,7 @@ export function Chart({
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      volumeSeriesRef.current = null;
       indicatorSeriesRef.current.clear();
     };
   }, []);
@@ -251,6 +274,17 @@ export function Chart({
     }));
 
     seriesRef.current.setData(candleData);
+
+    // Set volume data
+    if (volumeSeriesRef.current) {
+      const volumeData = data.map((bar) => ({
+        time: bar.time as Time,
+        value: bar.volume ?? 0,
+        color: bar.close >= bar.open ? "rgba(38,166,154,0.2)" : "rgba(239,83,80,0.2)",
+      }));
+      volumeSeriesRef.current.setData(volumeData);
+    }
+
     chartRef.current?.timeScale().fitContent();
 
     if (!markersRef.current && seriesRef.current) {
@@ -362,11 +396,34 @@ export function Chart({
           existingSeries.set(key, lineSeries);
         };
 
-        if (ind.custom && ind.script) {
-          // Custom indicator — run script in Web Worker
+        if (ind.custom && (ind as any)._precomputed) {
+          // Pine Script indicator — use pre-computed values
+          const values = (ind as any)._precomputed as (number | null)[];
+          if (Array.isArray(values) && values.length > 0) {
+            addLine(values);
+          }
+        } else if (ind.custom && ind.script && !ind.script.startsWith("__PINE__")) {
+          // Custom JS indicator — run script in Web Worker
           executeIndicatorScript(ind.script, data, parsedParams)
-            .then(addLine)
-            .catch(() => {}); // silently fail
+            .then((values) => {
+              if (Array.isArray(values) && values.length > 0) {
+                addLine(values);
+              }
+            })
+            .catch((err) => {
+              console.warn(`Custom indicator "${ind.name}" failed:`, err.message);
+            });
+        } else if (ind.custom && ind.script?.startsWith("__PINE__")) {
+          // Pine Script indicator — re-run with PineTS
+          import("@/lib/pine/runPineScript").then(({ runPineScript }) => {
+            const pineCode = ind.script!.slice(8); // strip __PINE__ prefix
+            runPineScript(pineCode, data).then((result) => {
+              if (result.plotNames.length > 0) {
+                const firstPlot = result.plots[result.plotNames[0]];
+                if (firstPlot) addLine(firstPlot);
+              }
+            }).catch(() => {});
+          });
         } else {
           // Built-in indicator
           try {
@@ -550,7 +607,7 @@ export function Chart({
   }, [drawingPhase, hasSelection]);
 
   return (
-    <div className="relative h-full w-full rounded-lg border border-slate-200 bg-white">
+    <div className="relative h-full w-full" style={{ background: "#131722" }}>
       <div ref={containerRef} className="absolute inset-0" />
 
       {data.length > 0 && (activeDrawingTool === "pattern_select" || hasSelection) && (
@@ -560,6 +617,27 @@ export function Chart({
           onSendToAgent={handleSendToAgent}
           onClear={handleClear}
         />
+      )}
+
+      {/* Dataset info overlay — top-left of chart */}
+      {data.length > 0 && activeDs && (
+        <div className="absolute top-2 left-2 z-10 pointer-events-none opacity-50">
+          <div className="text-[11px] font-semibold text-slate-600 tracking-wide">
+            {activeDs.name.replace(/\.csv$/i, "").toUpperCase()}
+          </div>
+          <div className="text-[10px] text-slate-400">
+            {activeDs.metadata.chartTimeframe || activeDs.metadata.nativeTimeframe || "?"}
+            {activeDs.metadata.chartTimeframe && activeDs.metadata.nativeTimeframe && activeDs.metadata.chartTimeframe !== activeDs.metadata.nativeTimeframe
+              ? ` (native ${activeDs.metadata.nativeTimeframe})`
+              : ""}
+          </div>
+          <div className="text-[10px] text-slate-400">
+            {new Date(activeDs.metadata.startDate).toLocaleDateString()} — {new Date(activeDs.metadata.endDate).toLocaleDateString()}
+          </div>
+          <div className="text-[10px] text-slate-400">
+            {activeDs.metadata.rows.toLocaleString()} bars
+          </div>
+        </div>
       )}
 
       {data.length === 0 && (

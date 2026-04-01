@@ -77,7 +77,7 @@ export function DrawingToolbar() {
   const hasSelected = drawings.some((d) => d.selected);
 
   return (
-    <div className="flex flex-col items-center gap-0.5 border-r border-slate-200 bg-white py-2 px-1">
+    <div className="flex flex-col items-center gap-0.5 py-2 px-1" style={{ borderRight: "1px solid var(--border)", background: "var(--surface)" }}>
       {tools.map((tool) => {
         if (tool.key === "delete") {
           return (
@@ -85,11 +85,8 @@ export function DrawingToolbar() {
               key={tool.key}
               onClick={deleteSelectedDrawing}
               disabled={!hasSelected}
-              className={`flex h-8 w-8 items-center justify-center rounded transition-colors ${
-                hasSelected
-                  ? "text-red-400 hover:bg-red-50 hover:text-red-500"
-                  : "text-slate-200 cursor-not-allowed"
-              }`}
+              className="flex h-8 w-8 items-center justify-center rounded transition-colors"
+              style={{ color: hasSelected ? "var(--danger)" : "var(--text-muted)" }}
               title={tool.label}
             >
               {tool.icon}
@@ -110,11 +107,11 @@ export function DrawingToolbar() {
                 tool.key === "pointer" ? null : (tool.key as DrawingType)
               )
             }
-            className={`flex h-8 w-8 items-center justify-center rounded transition-colors ${
-              isActive
-                ? "bg-slate-900 text-white"
-                : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-            }`}
+            className="flex h-8 w-8 items-center justify-center rounded transition-colors"
+            style={{
+              background: isActive ? "var(--accent)" : "transparent",
+              color: isActive ? "#fff" : "var(--text-tertiary)",
+            }}
             title={tool.label}
           >
             {tool.icon}

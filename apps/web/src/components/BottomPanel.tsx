@@ -21,12 +21,13 @@ export function BottomPanel() {
 
   return (
     <div
-      className={`flex flex-col border-t border-slate-200 bg-white shrink-0 ${
+      className={`flex flex-col shrink-0 ${
         collapsed ? "h-8" : "h-64"
       }`}
+      style={{ borderTop: "1px solid var(--border)", background: "var(--surface)" }}
     >
       {/* Tab bar + collapse toggle */}
-      <div className="flex h-8 shrink-0 items-center border-b border-slate-100 bg-slate-50/50 px-1">
+      <div className="flex h-8 shrink-0 items-center px-1" style={{ borderBottom: "1px solid var(--border-subtle)", background: "var(--surface-2)" }}>
         {tabs.map((tab, i) => (
           <button
             key={tab}

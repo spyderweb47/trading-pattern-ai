@@ -24,8 +24,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${chakraPetch.variable} ${geistMono.variable}`}>
-      <body className="bg-white text-slate-800 antialiased">
+    <html lang="en" className={`dark ${chakraPetch.variable} ${geistMono.variable}`}>
+      <body className="antialiased">
         {children}
       </body>
     </html>

@@ -10,6 +10,7 @@ import type {
   CapturedPatternData,
 } from '@/types';
 import type { Drawing, DrawingType } from '@/lib/chart-primitives/drawingTypes';
+import { resampleToTimeframe } from '@/lib/csv/resampleOHLC';
 
 export type Mode = 'pattern' | 'strategy' | 'backtest';
 
@@ -56,6 +57,8 @@ interface AppState {
 
   // Chart data (derived from activeDataset)
   chartData: OHLCBar[];
+  selectedTimeframe: string | null; // null = auto (fit to 6000 bars)
+  setSelectedTimeframe: (tf: string | null) => void;
 
   // Pattern matches
   patternMatches: PatternMatch[];
@@ -71,9 +74,26 @@ interface AppState {
   capturedPattern: CapturedPatternData | null;
   setCapturedPattern: (data: CapturedPatternData | null) => void;
 
+  // Theme
+  darkMode: boolean;
+  toggleDarkMode: () => void;
+
   // Chat input prefill
   chatInputDraft: string;
   setChatInputDraft: (text: string) => void;
+
+  // Strategy draft
+  strategyDraft: {
+    entryRules: string[];
+    exitRules: string[];
+    stopLoss: number | null;
+    takeProfit: number | null;
+    state: string;
+    script: string | null;
+  } | null;
+  setStrategyDraft: (draft: AppState["strategyDraft"]) => void;
+  updateStrategyDraft: (partial: Partial<NonNullable<AppState["strategyDraft"]>>) => void;
+  clearStrategyDraft: () => void;
 
   // Chart focus — zoom to a specific time range
   chartFocus: { startTime: number; endTime: number } | null;
@@ -175,6 +195,20 @@ export const useStore = create<AppState>((set) => ({
 
   // Chart data
   chartData: [],
+  selectedTimeframe: null,
+  setSelectedTimeframe: (tf) =>
+    set((state) => {
+      const id = state.activeDataset;
+      if (!id) return {};
+      const raw = state.datasetRawData[id];
+      if (!raw || raw.length === 0) return {};
+      if (tf === null) {
+        // Auto mode — use the pre-resampled chart data
+        return { selectedTimeframe: null, chartData: state.datasetChartData[id] || [] };
+      }
+      const resampled = resampleToTimeframe(raw, tf);
+      return { selectedTimeframe: tf, chartData: resampled };
+    }),
 
   // Pattern matches
   patternMatches: [],
@@ -190,9 +224,32 @@ export const useStore = create<AppState>((set) => ({
   capturedPattern: null,
   setCapturedPattern: (data) => set({ capturedPattern: data }),
 
+  // Theme
+  darkMode: true,
+  toggleDarkMode: () =>
+    set((state) => {
+      const next = !state.darkMode;
+      if (typeof document !== 'undefined') {
+        document.documentElement.classList.toggle('dark', next);
+        // Force lightweight-charts to update with new theme (requires chart recreate)
+      }
+      return { darkMode: next };
+    }),
+
   // Chat input prefill
   chatInputDraft: '',
   setChatInputDraft: (text) => set({ chatInputDraft: text }),
+
+  // Strategy draft
+  strategyDraft: null,
+  setStrategyDraft: (draft) => set({ strategyDraft: draft }),
+  updateStrategyDraft: (partial) =>
+    set((state) => ({
+      strategyDraft: state.strategyDraft
+        ? { ...state.strategyDraft, ...partial }
+        : { entryRules: [], exitRules: [], stopLoss: null, takeProfit: null, state: "needs_entry", script: null, ...partial },
+    })),
+  clearStrategyDraft: () => set({ strategyDraft: null }),
 
   // Chart focus
   chartFocus: null,

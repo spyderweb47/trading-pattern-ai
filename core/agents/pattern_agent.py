@@ -84,6 +84,40 @@ script that computes the indicator values for OHLC data.
 Return ONLY the JavaScript code. No markdown fences, no explanations outside comments."""
 
 
+PINE_CONVERT_PROMPT = """You are a TradingView Pine Script to JavaScript converter.
+
+Convert the given Pine Script indicator/strategy into a JavaScript indicator script.
+
+## Target Environment
+- The script receives `data` array: each element is { time, open, high, low, close, volume }
+- The script receives `params` object for tunable parameters
+- Must return an array of (number | null), one value per bar
+- Access: Math.min, Math.max, Math.abs, Math.round, Math.sqrt, Math.floor, Math.ceil
+- No import, require, fetch, or DOM APIs
+
+## Conversion Rules
+1. Pine `input()` → extract as `params.paramName || defaultValue`
+2. Pine `sma(src, len)` → implement as rolling mean
+3. Pine `ema(src, len)` → implement as exponential moving average: alpha = 2/(len+1)
+4. Pine `rsi(src, len)` → implement Wilder's RSI
+5. Pine `stdev(src, len)` → implement rolling standard deviation
+6. Pine `crossover(a, b)` → `a[i] > b[i] && a[i-1] <= b[i-1]`
+7. Pine `crossunder(a, b)` → `a[i] < b[i] && a[i-1] >= b[i-1]`
+8. Pine `close`, `open`, `high`, `low`, `volume` → `data[i].close` etc.
+9. Pine `close[1]` → `data[i-1].close`
+10. For strategies with entry/exit signals, return the main indicator line (e.g., Bollinger basis)
+11. Initialize: `const values = new Array(data.length).fill(null);`
+12. End with: `return values;`
+
+## Important
+- Return the MAIN visual line of the indicator (the one most useful on a price chart)
+- If the indicator has multiple lines (e.g., Bollinger upper/middle/lower), return the middle/basis line
+- Extract ALL tunable parameters from Pine `input()` calls into `params`
+
+## Output
+Return ONLY JavaScript code. No markdown fences, no explanations."""
+
+
 # ---------------------------------------------------------------------------
 # Example scripts
 # ---------------------------------------------------------------------------
@@ -226,12 +260,20 @@ EXAMPLE_INDICATOR_SCRIPTS: Dict[str, str] = {
 }
 
 # Keywords that indicate an EXPLICIT indicator creation request.
-# Must be very specific — general pattern/trading terms should NOT trigger this.
 INDICATOR_KEYWORDS = [
     "create indicator", "create an indicator", "create a indicator",
     "custom indicator", "build indicator", "build an indicator",
     "make indicator", "make an indicator", "new indicator",
     "create oscillator", "build oscillator",
+]
+
+# Pine Script detection markers
+PINE_SCRIPT_MARKERS = [
+    "//@version=", "strategy(", "indicator(", "study(",
+    "strategy.entry", "strategy.close", "strategy.exit",
+    "plot(", "plotshape(", "barcolor(", "bgcolor(",
+    "input(", "ta.sma", "ta.ema", "ta.rsi", "ta.bb",
+    "crossover(", "crossunder(", "sma(", "ema(", "rsi(",
 ]
 
 
@@ -256,7 +298,11 @@ class PatternAgent:
 
     @staticmethod
     def _detect_type(text: str) -> str:
-        """Detect whether the user wants a pattern or indicator."""
+        """Detect whether the user wants a pattern, indicator, or Pine Script conversion."""
+        # Check for Pine Script first (highest priority)
+        for marker in PINE_SCRIPT_MARKERS:
+            if marker in text:
+                return "pine_convert"
         lower = text.lower()
         for kw in INDICATOR_KEYWORDS:
             if kw in lower:
@@ -264,7 +310,15 @@ class PatternAgent:
         return "pattern"
 
     def _generate_with_llm(self, hypothesis: str, script_type: str) -> Dict[str, Any]:
-        prompt = INDICATOR_SYSTEM_PROMPT if script_type == "indicator" else PATTERN_SYSTEM_PROMPT
+        if script_type == "pine_convert":
+            prompt = PINE_CONVERT_PROMPT
+            effective_type = "indicator"
+        elif script_type == "indicator":
+            prompt = INDICATOR_SYSTEM_PROMPT
+            effective_type = "indicator"
+        else:
+            prompt = PATTERN_SYSTEM_PROMPT
+            effective_type = "pattern"
 
         script = chat_completion(
             system_prompt=prompt,
@@ -274,11 +328,13 @@ class PatternAgent:
         )
         script = _strip_code_fences(script)
 
+        explain_context = "Pine Script conversion to JavaScript indicator" if script_type == "pine_convert" else (
+            "indicator" if effective_type == "indicator" else "pattern detection"
+        )
         explanation = chat_completion(
             system_prompt=(
                 f"You are a trading analyst. Explain the following JavaScript "
-                f"{'indicator' if script_type == 'indicator' else 'pattern detection'} "
-                f"script in 2-3 sentences. What does it compute and how?"
+                f"{explain_context} script in 2-3 sentences. What does it compute and how?"
             ),
             user_message=script,
             model=self.model,
@@ -288,7 +344,7 @@ class PatternAgent:
 
         result = {
             "script": script,
-            "script_type": script_type,
+            "script_type": effective_type,
             "explanation": explanation,
             "parameters": self._extract_parameters(script),
             "indicators_used": self._extract_indicators(script),
@@ -313,7 +369,7 @@ class PatternAgent:
         return result
 
     def _generate_mock(self, hypothesis: str, script_type: str) -> Dict[str, Any]:
-        if script_type == "indicator":
+        if script_type == "pine_convert" or script_type == "indicator":
             script, name = self._match_indicator_example(hypothesis)
             return {
                 "script": script,

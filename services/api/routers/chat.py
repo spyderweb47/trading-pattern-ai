@@ -163,19 +163,36 @@ async def _handle_script_edit(message: str, current_script: str) -> ChatResponse
 
 
 async def _handle_strategy(message: str, context: dict) -> ChatResponse:
-    """Handle strategy mode: generate trading strategies."""
-    pattern_info = context.get("pattern_script", context.get("pattern_info", ""))
+    """Handle strategy mode: conversational strategy builder."""
+    # Extract strategy draft state from context
+    draft = context.get("strategy_draft", {})
+    strategy_state = draft.get("state", "needs_entry")
+    entry_rules = draft.get("entryRules", [])
+    exit_rules = draft.get("exitRules", [])
+    stop_loss = draft.get("stopLoss")
+    take_profit = draft.get("takeProfit")
+    current_script = context.get("pattern_script", "")
+
     result = _strategy_agent.generate(
-        pattern_info=pattern_info or message,
-        user_intent=message,
+        message=message,
+        strategy_state=strategy_state,
+        entry_rules=entry_rules,
+        exit_rules=exit_rules,
+        stop_loss=stop_loss,
+        take_profit=take_profit,
+        current_script=current_script or None,
     )
+
     return ChatResponse(
-        reply=result["explanation"],
-        script=result["script"],
+        reply=result.get("reply", ""),
+        script=result.get("script"),
+        script_type="strategy",
         data={
-            "parameters": result["parameters"],
-            "entry_rules": result["entry_rules"],
-            "exit_rules": result["exit_rules"],
+            "strategy_state": result.get("strategy_state", strategy_state),
+            "entry_rules": result.get("entry_rules", entry_rules),
+            "exit_rules": result.get("exit_rules", exit_rules),
+            "stop_loss": result.get("stop_loss", stop_loss),
+            "take_profit": result.get("take_profit", take_profit),
         },
     )
 

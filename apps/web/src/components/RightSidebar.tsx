@@ -6,11 +6,14 @@ import { ScriptEditor } from "./ScriptEditor";
 import { FileUpload } from "./FileUpload";
 import { sendChat } from "@/lib/api";
 import { executePatternScript } from "@/lib/scriptExecutor";
+import { executeStrategy } from "@/lib/strategyExecutor";
+import { runPineScript } from "@/lib/pine/runPineScript";
+import { StrategySummary } from "./StrategySummary";
 
-const TAG_COLORS: Record<string, string> = {
-  indicator: "bg-violet-100 text-violet-600",
-  pattern: "bg-amber-100 text-amber-600",
-  strategy: "bg-emerald-100 text-emerald-600",
+const TAG_STYLES: Record<string, { bg: string; color: string }> = {
+  indicator: { bg: "rgba(41,98,255,0.15)", color: "#2962ff" },
+  pattern: { bg: "rgba(255,152,0,0.15)", color: "#ff9800" },
+  strategy: { bg: "rgba(38,166,154,0.15)", color: "#26a69a" },
 };
 
 function Section({
@@ -25,10 +28,11 @@ function Section({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="border-b border-slate-100">
+    <div style={{ borderBottom: "1px solid var(--border-subtle)" }}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-600"
+        className="flex w-full items-center justify-between px-3 py-2 text-[10px] font-semibold uppercase tracking-wider hover:opacity-80"
+        style={{ color: "var(--text-tertiary)" }}
       >
         {title}
         <svg
@@ -53,6 +57,8 @@ export function RightSidebar() {
   const [loading, setLoading] = useState(false);
   const [runState, setRunState] = useState<"idle" | "running" | "done" | "error">("idle");
   const [showUpload, setShowUpload] = useState(false);
+  const [showPineImport, setShowPineImport] = useState(false);
+  const [pineInput, setPineInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const activeMode = useStore((s) => s.activeMode);
@@ -66,6 +72,9 @@ export function RightSidebar() {
   const toggleIndicator = useStore((s) => s.toggleIndicator);
   const updateIndicatorParams = useStore((s) => s.updateIndicatorParams);
   const removeIndicator = useStore((s) => s.removeIndicator);
+  const strategyDraft = useStore((s) => s.strategyDraft);
+  const updateStrategyDraft = useStore((s) => s.updateStrategyDraft);
+  const setBacktestResults = useStore((s) => s.setBacktestResults);
   const addScript = useStore((s) => s.addScript);
   const removeScript = useStore((s) => s.removeScript);
   const addCustomIndicator = useStore((s) => s.addCustomIndicator);
@@ -99,17 +108,30 @@ export function RightSidebar() {
       const result = await sendChat(text, activeMode, {
         dataset_id: activeDataset,
         pattern_script: currentScript,
+        strategy_draft: strategyDraft || undefined,
       });
 
       addMessage({ role: "agent", content: result.reply });
 
-      if (result.script && result.script_type === "indicator") {
-        // Add as a custom indicator to Resources
+      // Handle strategy mode responses
+      if (activeMode === "strategy" && result.data) {
+        const d = result.data as Record<string, unknown>;
+        updateStrategyDraft({
+          state: (d.strategy_state as string) || strategyDraft?.state || "needs_entry",
+          entryRules: (d.entry_rules as string[]) || strategyDraft?.entryRules || [],
+          exitRules: (d.exit_rules as string[]) || strategyDraft?.exitRules || [],
+          stopLoss: (d.stop_loss as number) ?? strategyDraft?.stopLoss ?? null,
+          takeProfit: (d.take_profit as number) ?? strategyDraft?.takeProfit ?? null,
+          script: result.script || strategyDraft?.script || null,
+        });
+        if (result.script) {
+          setCurrentScript(result.script);
+          setView("code");
+        }
+      } else if (result.script && result.script_type === "indicator") {
         const indName = (result.data as Record<string, unknown>)?.indicator_name as string || "Custom";
         const defaultParams = (result.data as Record<string, unknown>)?.default_params as Record<string, string> || {};
         const colors = ["#f59e0b", "#8b5cf6", "#06b6d4", "#ec4899", "#6366f1", "#14b8a6", "#f97316"];
-        const color = colors[indicators.length % colors.length];
-
         addCustomIndicator({
           name: indName,
           backendName: indName.toLowerCase().replace(/\s+/g, "_"),
@@ -117,20 +139,14 @@ export function RightSidebar() {
           params: defaultParams,
           script: result.script,
           custom: true,
-          color,
+          color: colors[indicators.length % colors.length],
         });
         addMessage({ role: "agent", content: `Custom indicator "${indName}" added to Resources and enabled on chart.` });
       } else if (result.script) {
         const isEdit = currentScript.length > 0;
         setCurrentScript(result.script);
-        // Only auto-switch to code on first script generation, not edits
-        if (!isEdit) {
-          setView("code");
-        }
-        // Show script update notification
-        if (isEdit) {
-          addMessage({ role: "agent", content: "Script updated. Switch to CODE tab to see changes, then click Run." });
-        }
+        if (!isEdit) setView("code");
+        if (isEdit) addMessage({ role: "agent", content: "Script updated. Switch to CODE tab to see changes, then click Run." });
       }
     } catch (err) {
       addMessage({
@@ -179,6 +195,45 @@ export function RightSidebar() {
     }
   };
 
+  const handleBacktest = async () => {
+    const script = currentScript || strategyDraft?.script || (document.querySelector('textarea') as HTMLTextAreaElement)?.value || "";
+    if (!script || !activeDataset) return;
+    if (!script.includes("return") || !script.includes("trades")) {
+      addMessage({ role: "agent", content: "Strategy script looks incomplete. Finish building the strategy first — define entry, exit, and risk management." });
+      return;
+    }
+    setRunState("running");
+
+    const runData = chartData;
+    if (!runData || runData.length === 0) {
+      addMessage({ role: "agent", content: "No data. Upload a dataset first." });
+      setRunState("idle");
+      return;
+    }
+
+    try {
+      const config = {
+        stopLoss: strategyDraft?.stopLoss ?? 2,
+        takeProfit: strategyDraft?.takeProfit ?? 5,
+      };
+      const result = await executeStrategy(script, runData, config);
+      setBacktestResults(result);
+      setRunState("done");
+      addMessage({
+        role: "agent",
+        content: `Backtest complete: ${result.totalTrades} trades, ${(result.winRate * 100).toFixed(1)}% win rate, ${(result.totalReturn * 100).toFixed(1)}% return, Sharpe ${result.sharpeRatio}.`,
+      });
+      setTimeout(() => setRunState("idle"), 2000);
+    } catch (err) {
+      setRunState("error");
+      addMessage({
+        role: "agent",
+        content: `Backtest error: ${err instanceof Error ? err.message : "Failed"}`,
+      });
+      setTimeout(() => setRunState("idle"), 3000);
+    }
+  };
+
   const handleSave = () => {
     if (!currentScript) return;
     addScript({
@@ -190,6 +245,162 @@ export function RightSidebar() {
     addMessage({ role: "agent", content: "Script saved." });
   };
 
+  const handlePineImport = async () => {
+    if (!pineInput.trim() || loading) return;
+    setLoading(true);
+
+    // Extract indicator name from Pine Script
+    const nameMatch = pineInput.match(/(?:indicator|strategy|study)\s*\(\s*["']([^"']+)["']/);
+    const indName = nameMatch ? nameMatch[1] : "Pine Import";
+
+    addMessage({ role: "user", content: `[Pine Script Import] ${indName}` });
+
+    // Check Pine Script version — PineTS only supports v5+
+    const versionMatch = pineInput.match(/@version=(\d+)/);
+    const pineVersion = versionMatch ? parseInt(versionMatch[1]) : 5;
+
+    if (pineVersion < 5) {
+      // Fall back to LLM conversion for older Pine Script versions
+      addMessage({ role: "agent", content: `Pine Script v${pineVersion} detected — converting to JavaScript via AI (PineTS requires v5+)...` });
+      try {
+        const result = await sendChat(pineInput, activeMode, {});
+        addMessage({ role: "agent", content: result.reply });
+        if (result.script) {
+          const colors = ["#f59e0b", "#8b5cf6", "#06b6d4", "#ec4899", "#6366f1", "#14b8a6", "#f97316"];
+          addCustomIndicator({
+            name: indName,
+            backendName: indName.toLowerCase().replace(/\s+/g, "_"),
+            active: true,
+            params: (result.data as Record<string, unknown>)?.default_params as Record<string, string> || {},
+            script: result.script,
+            custom: true,
+            color: colors[indicators.length % colors.length],
+          });
+          addMessage({ role: "agent", content: `"${indName}" converted and added to chart.` });
+        }
+        setShowPineImport(false);
+        setPineInput("");
+      } catch (err) {
+        addMessage({ role: "agent", content: `Conversion failed: ${err instanceof Error ? err.message : "Unknown error"}` });
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    try {
+      // Run Pine Script v5+ directly using PineTS — no LLM needed
+      const runData = chartData.length > 0 ? chartData : [];
+      if (runData.length === 0) {
+        addMessage({ role: "agent", content: "Upload a dataset first before importing Pine Script." });
+        return;
+      }
+
+      // Detect timeframe from active dataset
+      const ds = datasets.find((d) => d.id === activeDataset);
+      const tf = ds?.metadata.chartTimeframe || "D";
+
+      const result = await runPineScript(pineInput, runData, ds?.name || "LOCAL", tf);
+
+      if (result.error || result.plotNames.length === 0) {
+        // PineTS failed — fall back to LLM conversion with error context
+        const errMsg = result.error || "No plot output produced";
+        addMessage({ role: "agent", content: `PineTS runtime error: ${errMsg}. Falling back to AI conversion...` });
+
+        try {
+          const llmResult = await sendChat(
+            `Convert this Pine Script to a JavaScript indicator. The PineTS runtime gave this error: "${errMsg}". Fix the issue and return working JavaScript.\n\n${pineInput}`,
+            activeMode,
+            {}
+          );
+          addMessage({ role: "agent", content: llmResult.reply });
+          if (llmResult.script) {
+            const colors = ["#f59e0b", "#8b5cf6", "#06b6d4", "#ec4899", "#6366f1", "#14b8a6", "#f97316"];
+            addCustomIndicator({
+              name: indName,
+              backendName: indName.toLowerCase().replace(/\s+/g, "_"),
+              active: true,
+              params: (llmResult.data as Record<string, unknown>)?.default_params as Record<string, string> || {},
+              script: llmResult.script,
+              custom: true,
+              color: colors[indicators.length % colors.length],
+            });
+            addMessage({ role: "agent", content: `"${indName}" converted via AI and added to chart.` });
+          }
+        } catch (llmErr) {
+          addMessage({ role: "agent", content: `AI conversion also failed: ${llmErr instanceof Error ? llmErr.message : "Unknown error"}` });
+        }
+        setShowPineImport(false);
+        setPineInput("");
+        return;
+      }
+
+      // Add each plot as a custom indicator
+      const colors = ["#f59e0b", "#8b5cf6", "#06b6d4", "#ec4899", "#6366f1", "#14b8a6", "#f97316"];
+
+      for (let i = 0; i < result.plotNames.length; i++) {
+        const plotName = result.plotNames[i];
+        const values = result.plots[plotName];
+        const displayName = result.plotNames.length === 1 ? indName : `${indName} — ${plotName}`;
+        const color = colors[(indicators.length + i) % colors.length];
+
+        // Store the Pine Script as the indicator script, with a special prefix
+        // so the chart knows to use PineTS runtime instead of JS eval
+        addCustomIndicator({
+          name: displayName,
+          backendName: displayName.toLowerCase().replace(/\s+/g, "_"),
+          active: true,
+          params: {},
+          script: `__PINE__${pineInput}`,
+          custom: true,
+          color,
+          // Store pre-computed values so we don't re-run PineTS on every toggle
+          _precomputed: values,
+        } as any);
+      }
+
+      addMessage({
+        role: "agent",
+        content: `Pine Script "${indName}" executed: ${result.plotNames.length} plot(s) added to chart (${result.plotNames.join(", ")}).`,
+      });
+
+      setShowPineImport(false);
+      setPineInput("");
+    } catch (err) {
+      // PineTS threw — fall back to LLM
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      addMessage({ role: "agent", content: `PineTS error: ${errMsg}. Falling back to AI conversion...` });
+
+      try {
+        const llmResult = await sendChat(
+          `Convert this Pine Script to JavaScript. PineTS gave error: "${errMsg}". Fix and return working JS.\n\n${pineInput}`,
+          activeMode,
+          {}
+        );
+        addMessage({ role: "agent", content: llmResult.reply });
+        if (llmResult.script) {
+          const colors = ["#f59e0b", "#8b5cf6", "#06b6d4", "#ec4899", "#6366f1", "#14b8a6", "#f97316"];
+          addCustomIndicator({
+            name: indName,
+            backendName: indName.toLowerCase().replace(/\s+/g, "_"),
+            active: true,
+            params: (llmResult.data as Record<string, unknown>)?.default_params as Record<string, string> || {},
+            script: llmResult.script,
+            custom: true,
+            color: colors[indicators.length % colors.length],
+          });
+          addMessage({ role: "agent", content: `"${indName}" converted via AI fallback and added to chart.` });
+        }
+        setShowPineImport(false);
+        setPineInput("");
+      } catch {
+        addMessage({ role: "agent", content: `Both PineTS and AI conversion failed. Try a simpler Pine Script.` });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const placeholder: Record<string, string> = {
     pattern: "Describe a pattern to detect...",
     strategy: "Describe a trading strategy...",
@@ -197,7 +408,7 @@ export function RightSidebar() {
   };
 
   return (
-    <div className="flex w-80 flex-col border-l border-slate-200 bg-white">
+    <div className="flex w-80 flex-col" style={{ borderLeft: "1px solid var(--border)", background: "var(--surface)" }}>
       {/* ─── Datasets ─── */}
       <Section title="Datasets">
         {datasets.length === 0 ? (
@@ -277,7 +488,7 @@ export function RightSidebar() {
                 >
                   {ind.name}
                 </span>
-                <span className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${TAG_COLORS.indicator}`}>
+                <span className="rounded px-1.5 py-0.5 text-[9px] font-medium" style={{ background: TAG_STYLES.indicator.bg, color: TAG_STYLES.indicator.color }}>
                   indicator
                 </span>
                 <button
@@ -367,7 +578,7 @@ export function RightSidebar() {
                 >
                   {script.name}
                 </button>
-                <span className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${TAG_COLORS[script.type] || TAG_COLORS.pattern}`}>
+                <span className="rounded px-1.5 py-0.5 text-[9px] font-medium" style={{ background: (TAG_STYLES[script.type] || TAG_STYLES.pattern).bg, color: (TAG_STYLES[script.type] || TAG_STYLES.pattern).color }}>
                   {script.type}
                 </span>
                 {/* Delete button */}
@@ -390,7 +601,45 @@ export function RightSidebar() {
             Scripts and strategies created from chat will appear here.
           </p>
         )}
+
+        {/* Import Pine Script */}
+        {!showPineImport ? (
+          <button
+            onClick={() => setShowPineImport(true)}
+            className="mt-2 w-full rounded border border-dashed border-slate-300 px-2 py-1.5 text-[10px] text-slate-400 hover:border-slate-400 hover:text-slate-600"
+          >
+            + Import Pine Script
+          </button>
+        ) : (
+          <div className="mt-2 rounded border border-slate-200 bg-slate-50/50 p-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase">Paste Pine Script</span>
+              <button
+                onClick={() => { setShowPineImport(false); setPineInput(""); }}
+                className="text-slate-300 hover:text-slate-500 text-xs"
+              >
+                &times;
+              </button>
+            </div>
+            <textarea
+              value={pineInput}
+              onChange={(e) => setPineInput(e.target.value)}
+              placeholder="//@version=5&#10;indicator(...)&#10;..."
+              className="w-full h-24 rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-[10px] text-slate-600 outline-none focus:border-slate-400 resize-none"
+            />
+            <button
+              onClick={handlePineImport}
+              disabled={!pineInput.trim() || loading}
+              className="mt-1 w-full rounded bg-slate-900 px-2 py-1.5 text-[10px] font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+            >
+              {loading ? "Converting..." : "Convert & Add Indicator"}
+            </button>
+          </div>
+        )}
       </Section>
+
+      {/* ─── Strategy Summary (when in strategy mode) ─── */}
+      {activeMode === "strategy" && <StrategySummary />}
 
       {/* ─── Chat / Code ─── */}
       <div className="flex flex-1 flex-col min-h-0">
@@ -423,27 +672,35 @@ export function RightSidebar() {
           {view === "chat" ? (
             <div className="p-3 space-y-3">
               {messages.length === 0 && (
-                <p className="text-xs text-slate-400 text-center mt-4">
-                  Describe a pattern hypothesis or strategy in natural language.
+                <p className="text-[12px] text-center mt-6" style={{ color: "var(--text-tertiary)" }}>
+                  {activeMode === "strategy"
+                    ? "Let's build a strategy! Describe your entry signal to get started."
+                    : "Describe a pattern hypothesis or strategy in natural language."}
                 </p>
               )}
               {messages.map((msg) => (
                 <div
                   key={msg.id}
-                  className={`text-xs rounded-lg px-3 py-2 ${
-                    msg.role === "user"
-                      ? "bg-slate-50 text-slate-700 ml-4"
-                      : "bg-white text-slate-600 mr-4 border border-slate-200"
+                  className={`text-[12px] leading-relaxed rounded-xl px-3 py-2.5 ${
+                    msg.role === "user" ? "ml-6" : "mr-4"
                   }`}
+                  style={{
+                    background: msg.role === "user" ? "var(--chat-user-bg)" : "var(--chat-agent-bg)",
+                    color: "var(--text-primary)",
+                    border: msg.role === "agent" ? "1px solid var(--chat-agent-border)" : "none",
+                  }}
                 >
-                  <span className="font-semibold text-[10px] uppercase block mb-1 text-slate-400">
+                  <span
+                    className="font-semibold text-[9px] uppercase block mb-1"
+                    style={{ color: msg.role === "user" ? "var(--accent)" : "var(--text-tertiary)" }}
+                  >
                     {msg.role === "user" ? "You" : "Agent"}
                   </span>
-                  {msg.content}
+                  <span className="whitespace-pre-wrap">{msg.content}</span>
                 </div>
               ))}
               {loading && (
-                <div className="text-xs text-slate-400 animate-pulse">
+                <div className="text-[12px] animate-pulse" style={{ color: "var(--text-tertiary)" }}>
                   Thinking...
                 </div>
               )}
@@ -458,8 +715,8 @@ export function RightSidebar() {
         {view === "code" && currentScript && (
           <div className="flex gap-2 border-t border-slate-100 p-2">
             <button
-              onClick={handleRun}
-              disabled={loading || !activeDataset || runState === "running"}
+              onClick={activeMode === "strategy" ? handleBacktest : handleRun}
+              disabled={loading || !activeDataset || runState === "running" || (activeMode === "strategy" && strategyDraft?.state !== "complete")}
               className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-all ${
                 runState === "running"
                   ? "bg-amber-500 text-white animate-pulse"
@@ -471,12 +728,12 @@ export function RightSidebar() {
               }`}
             >
               {runState === "running"
-                ? "Running..."
+                ? (activeMode === "strategy" ? "Backtesting..." : "Running...")
                 : runState === "done"
                   ? "Done!"
                   : runState === "error"
                     ? "Failed"
-                    : "Run"}
+                    : (activeMode === "strategy" ? "Run Backtest" : "Run")}
             </button>
             <button
               onClick={handleSave}
@@ -496,7 +753,7 @@ export function RightSidebar() {
         )}
 
         {/* Input */}
-        <div className="border-t border-slate-100 p-2">
+        <div className="p-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
           <div className="flex gap-2">
             <input
               type="text"
@@ -504,12 +761,18 @@ export function RightSidebar() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
               placeholder={placeholder[activeMode]}
-              className="flex-1 rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 placeholder-slate-400 outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-200"
+              className="flex-1 rounded-lg px-3 py-2 text-[12px] outline-none transition-colors"
+              style={{
+                background: "var(--surface-2)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border)",
+              }}
             />
             <button
               onClick={handleSend}
               disabled={loading || !input.trim()}
-              className="rounded bg-slate-900 px-3 py-2 text-xs font-medium text-white hover:bg-slate-800 disabled:opacity-40"
+              className="rounded-lg px-3 py-2 text-[12px] font-medium text-white disabled:opacity-40 transition-colors"
+              style={{ background: "var(--accent)" }}
             >
               Send
             </button>

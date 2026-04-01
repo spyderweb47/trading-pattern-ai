@@ -6,6 +6,7 @@ import { RightSidebar } from "@/components/RightSidebar";
 import { BottomPanel } from "@/components/BottomPanel";
 import { Chart } from "@/components/Chart";
 import { DrawingToolbar } from "@/components/DrawingToolbar";
+import { TimeframeSelector } from "@/components/TimeframeSelector";
 import { useStore } from "@/store/useStore";
 
 export default function Home() {
@@ -25,16 +26,19 @@ export default function Home() {
   }, []);
 
   return (
-    <div ref={rootRef} className="flex h-screen overflow-hidden">
+    <div ref={rootRef} className="flex h-screen overflow-hidden" style={{ background: "var(--bg)" }}>
       {/* Center Content */}
       <div className="flex flex-1 flex-col min-w-0">
         {/* Top Bar */}
         <TopBar />
 
+        {/* Timeframe selector */}
+        <TimeframeSelector />
+
         {/* Chart Area with Drawing Toolbar */}
         <div className="flex flex-1 min-h-0">
           <DrawingToolbar />
-          <div className="flex-1 min-h-0 p-2">
+          <div className="flex-1 min-h-0">
             <Chart data={chartData} patternMatches={patternMatches} />
           </div>
         </div>

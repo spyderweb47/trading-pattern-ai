@@ -79,21 +79,37 @@ export async function executeIndicatorScript(
   params: Record<string, unknown>
 ): Promise<(number | null)[]> {
   let body = script.trim();
-  if (!body.includes("return values") && !body.includes("return data.map")) {
+
+  // Detect if the LLM wrapped the code in a function declaration and unwrap it
+  // e.g. "const myFn = (data, params) => { ... }" or "function myFn(data, params) { ... }"
+  const arrowMatch = body.match(/^const\s+(\w+)\s*=\s*\(data,?\s*params?\)\s*=>\s*\{/);
+  const funcMatch = body.match(/^function\s+(\w+)\s*\(data,?\s*params?\)\s*\{/);
+  if (arrowMatch || funcMatch) {
+    const fnName = (arrowMatch || funcMatch)![1];
+    // Append a call to the function at the end
+    if (!body.includes(`${fnName}(data`)) {
+      body += `\nreturn ${fnName}(data, params);`;
+    }
+  }
+
+  // Ensure there's a return statement
+  if (!body.includes("return ")) {
     body += "\nreturn values;";
   }
 
   return new Promise((resolve, reject) => {
+    // Pass script via postMessage to avoid template literal escaping issues
     const workerCode = `
       self.onmessage = function(e) {
         try {
-          const data = e.data.data;
-          const params = e.data.params;
-          const fn = new Function("data", "params", "Math", ${JSON.stringify(body)});
-          const result = fn(data, params, Math);
-          self.postMessage({ ok: true, result });
+          var data = e.data.data;
+          var params = e.data.params;
+          var script = e.data.script;
+          var fn = new Function("data", "params", "Math", script);
+          var result = fn(data, params, Math);
+          self.postMessage({ ok: true, result: result });
         } catch (err) {
-          self.postMessage({ ok: false, error: err.message || String(err) });
+          self.postMessage({ ok: false, error: (err.message || String(err)) });
         }
       };
     `;
@@ -105,8 +121,8 @@ export async function executeIndicatorScript(
     const timeout = setTimeout(() => {
       worker.terminate();
       URL.revokeObjectURL(url);
-      reject(new Error("Indicator script timed out (10s)"));
-    }, 10000);
+      reject(new Error("Indicator script timed out (30s)"));
+    }, 30000);
 
     worker.onmessage = (e) => {
       clearTimeout(timeout);
@@ -126,7 +142,7 @@ export async function executeIndicatorScript(
       reject(new Error(`Worker error: ${e.message}`));
     };
 
-    worker.postMessage({ data, params });
+    worker.postMessage({ data, params, script: body });
   });
 }
 

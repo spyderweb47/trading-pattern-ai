@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import Papa from "papaparse";
 import { useStore } from "@/store/useStore";
-import { resampleOHLC } from "@/lib/csv/resampleOHLC";
+import { resampleOHLC, detectTimeframe } from "@/lib/csv/resampleOHLC";
 import type { OHLCBar } from "@/types";
 
 const COLUMN_ALIASES: Record<string, string[]> = {
@@ -129,7 +129,8 @@ export function FileUpload() {
         const rawData = await streamParseCSV(file);
         setProgress(`Parsed ${rawData.length.toLocaleString()} bars, resampling...`);
 
-        const chartData = resampleOHLC(rawData);
+        const native = detectTimeframe(rawData);
+        const { data: chartData, chartTimeframe } = resampleOHLC(rawData);
 
         const startDate = new Date((rawData[0].time as number) * 1000).toISOString();
         const endDate = new Date((rawData[rawData.length - 1].time as number) * 1000).toISOString();
@@ -141,6 +142,8 @@ export function FileUpload() {
             rows: rawData.length,
             startDate,
             endDate,
+            nativeTimeframe: native.label,
+            chartTimeframe,
           },
         };
 

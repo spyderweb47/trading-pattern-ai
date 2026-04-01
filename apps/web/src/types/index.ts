@@ -15,6 +15,8 @@ export interface Dataset {
     startDate: string;
     endDate: string;
     symbol?: string;
+    nativeTimeframe?: string;
+    chartTimeframe?: string;
   };
 }
 
