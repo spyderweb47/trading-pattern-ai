@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Next.js Frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "FastAPI Backend",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "services.api.main:app", "--reload", "--port", "8000"],
+      "port": 8000
+    }
+  ]
+}
