@@ -8,7 +8,8 @@ import { sendChat } from "@/lib/api";
 import { executePatternScript } from "@/lib/scriptExecutor";
 import { executeStrategy } from "@/lib/strategyExecutor";
 import { runPineScript } from "@/lib/pine/runPineScript";
-import { StrategySummary } from "./StrategySummary";
+import { StrategyForm } from "./StrategyForm";
+import type { StrategyConfig } from "@/types";
 
 const TAG_STYLES: Record<string, { bg: string; color: string }> = {
   indicator: { bg: "rgba(41,98,255,0.15)", color: "#2962ff" },
@@ -59,6 +60,7 @@ export function RightSidebar() {
   const [showUpload, setShowUpload] = useState(false);
   const [showPineImport, setShowPineImport] = useState(false);
   const [pineInput, setPineInput] = useState("");
+  const [pendingFingerprint, setPendingFingerprint] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const activeMode = useStore((s) => s.activeMode);
@@ -72,8 +74,8 @@ export function RightSidebar() {
   const toggleIndicator = useStore((s) => s.toggleIndicator);
   const updateIndicatorParams = useStore((s) => s.updateIndicatorParams);
   const removeIndicator = useStore((s) => s.removeIndicator);
-  const strategyDraft = useStore((s) => s.strategyDraft);
-  const updateStrategyDraft = useStore((s) => s.updateStrategyDraft);
+  const strategyConfig = useStore((s) => s.strategyConfig);
+  const setStrategyConfig = useStore((s) => s.setStrategyConfig);
   const setBacktestResults = useStore((s) => s.setBacktestResults);
   const addScript = useStore((s) => s.addScript);
   const removeScript = useStore((s) => s.removeScript);
@@ -105,29 +107,30 @@ export function RightSidebar() {
     setLoading(true);
 
     try {
+      // If sending new pattern fingerprint data, don't pass old script (prevents edit mode)
+      const isNewFingerprint = text.includes("TRIGGER SHAPE:") || text.includes("SHAPE:");
       const result = await sendChat(text, activeMode, {
         dataset_id: activeDataset,
-        pattern_script: currentScript,
-        strategy_draft: strategyDraft || undefined,
+        pattern_script: isNewFingerprint ? "" : currentScript,
+        strategy_config: strategyConfig || undefined,
+        pending_fingerprint: isNewFingerprint ? undefined : (pendingFingerprint || undefined),
       });
+
+      // Clear pending fingerprint when new pattern data arrives
+      if (isNewFingerprint) {
+        setPendingFingerprint(null);
+      }
 
       addMessage({ role: "agent", content: result.reply });
 
+      // Store pending fingerprint if returned (pattern analysis step)
+      const newPending = (result.data as Record<string, unknown>)?.pending_fingerprint as string | undefined;
+      setPendingFingerprint(newPending || null);
+
       // Handle strategy mode responses
-      if (activeMode === "strategy" && result.data) {
-        const d = result.data as Record<string, unknown>;
-        updateStrategyDraft({
-          state: (d.strategy_state as string) || strategyDraft?.state || "needs_entry",
-          entryRules: (d.entry_rules as string[]) || strategyDraft?.entryRules || [],
-          exitRules: (d.exit_rules as string[]) || strategyDraft?.exitRules || [],
-          stopLoss: (d.stop_loss as number) ?? strategyDraft?.stopLoss ?? null,
-          takeProfit: (d.take_profit as number) ?? strategyDraft?.takeProfit ?? null,
-          script: result.script || strategyDraft?.script || null,
-        });
-        if (result.script) {
-          setCurrentScript(result.script);
-          setView("code");
-        }
+      if (activeMode === "strategy" && result.script) {
+        setCurrentScript(result.script);
+        setView("code");
       } else if (result.script && result.script_type === "indicator") {
         const indName = (result.data as Record<string, unknown>)?.indicator_name as string || "Custom";
         const defaultParams = (result.data as Record<string, unknown>)?.default_params as Record<string, string> || {};
@@ -161,6 +164,8 @@ export function RightSidebar() {
   const datasetRawData = useStore((s) => s.datasetRawData);
   const chartData = useStore((s) => s.chartData);
 
+  const setLastScriptResult = useStore((s) => s.setLastScriptResult);
+
   const handleRun = async () => {
     // Use currentScript state, or fall back to textarea DOM value
     const script = currentScript || (document.querySelector('textarea') as HTMLTextAreaElement)?.value || "";
@@ -179,6 +184,7 @@ export function RightSidebar() {
     try {
       const matches = await executePatternScript(script, runData);
       setPatternMatches(matches);
+      setLastScriptResult({ ran: true });
       setRunState(matches.length > 0 ? "done" : "idle");
       addMessage({
         role: "agent",
@@ -189,19 +195,79 @@ export function RightSidebar() {
       if (matches.length > 0) setTimeout(() => setRunState("idle"), 2000);
     } catch (err) {
       setRunState("error");
+      const errMsg = err instanceof Error ? err.message : "Failed";
+      setPatternMatches([]);
+      setLastScriptResult({ ran: true, error: errMsg });
       addMessage({
         role: "agent",
-        content: `Run error: ${err instanceof Error ? err.message : "Failed"}`,
+        content: `Run error: ${errMsg}`,
       });
       setTimeout(() => setRunState("idle"), 3000);
     }
   };
 
+  const handleStrategySubmit = async (config: StrategyConfig) => {
+    setStrategyConfig(config);
+    setLoading(true);
+    addMessage({ role: "user", content: `Strategy: Entry=${config.entryCondition}, Exit=${config.exitCondition}, TP=${config.takeProfit.value}${config.takeProfit.type === "percentage" ? "%" : "$"}, SL=${config.stopLoss.value}${config.stopLoss.type === "percentage" ? "%" : ""}, Seed=$${config.seedAmount}` });
+
+    try {
+      // Step 1: Generate script from config
+      const result = await sendChat("Generate strategy", activeMode, {
+        strategy_config: config,
+      });
+      addMessage({ role: "agent", content: result.reply || "Strategy script generated." });
+
+      if (result.script) {
+        setCurrentScript(result.script);
+
+        // Step 2: Auto-run backtest
+        const runData = chartData;
+        if (runData && runData.length > 0) {
+          setRunState("running");
+          addMessage({ role: "agent", content: "Running backtest..." });
+
+          const btResult = await executeStrategy(result.script, runData, config);
+          setBacktestResults(btResult);
+          setRunState("done");
+          addMessage({
+            role: "agent",
+            content: `Backtest complete: ${btResult.totalTrades} trades, ${(btResult.winRate * 100).toFixed(1)}% win rate, ${(btResult.totalReturn * 100).toFixed(1)}% return.`,
+          });
+
+          // Step 3: Get AI analysis
+          try {
+            const analysisResult = await sendChat("Analyze results", activeMode, {
+              strategy_config: config,
+              analyze_results: btResult.metrics || {},
+            });
+            const suggestions = (analysisResult.data as Record<string, unknown>)?.suggestions as string[] || [];
+            setBacktestResults({
+              ...btResult,
+              analysis: analysisResult.reply,
+              suggestions,
+            });
+            addMessage({ role: "agent", content: analysisResult.reply });
+          } catch {
+            // Analysis failed — results still available
+          }
+
+          setTimeout(() => setRunState("idle"), 2000);
+        } else {
+          addMessage({ role: "agent", content: "Upload a dataset first to run the backtest." });
+        }
+      }
+    } catch (err) {
+      addMessage({ role: "agent", content: `Error: ${err instanceof Error ? err.message : "Failed"}` });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleBacktest = async () => {
-    const script = currentScript || strategyDraft?.script || (document.querySelector('textarea') as HTMLTextAreaElement)?.value || "";
-    if (!script || !activeDataset) return;
-    if (!script.includes("return") || !script.includes("trades")) {
-      addMessage({ role: "agent", content: "Strategy script looks incomplete. Finish building the strategy first — define entry, exit, and risk management." });
+    const script = currentScript || (document.querySelector('textarea') as HTMLTextAreaElement)?.value || "";
+    if (!script || !activeDataset) {
+      addMessage({ role: "agent", content: !script ? "No strategy script. Generate one first." : "No dataset loaded." });
       return;
     }
     setRunState("running");
@@ -214,9 +280,11 @@ export function RightSidebar() {
     }
 
     try {
-      const config = {
-        stopLoss: strategyDraft?.stopLoss ?? 2,
-        takeProfit: strategyDraft?.takeProfit ?? 5,
+      const config = strategyConfig || {
+        entryCondition: "", exitCondition: "",
+        takeProfit: { type: "percentage" as const, value: 5 },
+        stopLoss: { type: "percentage" as const, value: 2 },
+        maxDrawdown: 20, seedAmount: 10000, specialInstructions: "",
       };
       const result = await executeStrategy(script, runData, config);
       setBacktestResults(result);
@@ -510,32 +578,143 @@ export function RightSidebar() {
                 </button>
               </div>
 
-              {/* Inline param editor */}
+              {/* Inline settings editor */}
               {editingIndicator === ind.name && (
-                <div className="ml-6 mt-1 mb-2 space-y-1 rounded border border-[var(--border-subtle)] bg-[var(--surface-2)]/50 p-2">
-                  {Object.entries(ind.params).map(([key, val]) => (
+                <div className="ml-6 mt-1 mb-2 space-y-1.5 rounded border border-[var(--border-subtle)] p-2" style={{ background: "var(--surface-2)" }}>
+                  {/* Type badge */}
+                  <div className="flex items-center gap-2 text-[9px]" style={{ color: "var(--text-muted)" }}>
+                    {ind.custom && ind.script?.startsWith("__PINE__") ? "Pine Script" : ind.custom ? "Custom JS" : "Built-in"}
+                    {(ind as any)._precomputed && " \u00b7 Pre-computed"}
+                  </div>
+
+                  {/* Colors */}
+                  {(() => {
+                    const plotColorsStr = ind.params._plotColors as string | undefined;
+                    const multiColors = plotColorsStr ? plotColorsStr.split(",").filter(Boolean) : [];
+                    return multiColors.length > 1 ? (
+                      <div className="space-y-1">
+                        <label className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>Colors ({multiColors.length})</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {multiColors.map((col, ci) => (
+                            <div key={ci} className="flex items-center gap-1">
+                              <input
+                                type="color"
+                                defaultValue={col}
+                                onChange={(e) => {
+                                  const newColors = [...multiColors];
+                                  newColors[ci] = e.target.value;
+                                  const newParams = { ...ind.params, _plotColors: newColors.join(",") };
+                                  updateIndicatorParams(ind.name, newParams);
+                                }}
+                                className="h-5 w-5 rounded border border-[var(--border)] cursor-pointer"
+                                style={{ background: "transparent", padding: 0 }}
+                              />
+                              <span className="text-[8px]" style={{ color: "var(--text-muted)" }}>{col.substring(0, 7)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] w-14 shrink-0" style={{ color: "var(--text-tertiary)" }}>Color</label>
+                        <input
+                          type="color"
+                          defaultValue={ind.color || "#6366f1"}
+                          onChange={(e) => {
+                            const updated = useStore.getState().indicators.map((i) =>
+                              i.name === ind.name ? { ...i, color: e.target.value, active: false } : i
+                            );
+                            useStore.setState({ indicators: updated });
+                            setTimeout(() => {
+                              useStore.setState({ indicators: useStore.getState().indicators.map((i) =>
+                                i.name === ind.name ? { ...i, active: true } : i
+                              )});
+                            }, 50);
+                          }}
+                          className="h-5 w-7 rounded border border-[var(--border)] cursor-pointer"
+                          style={{ background: "transparent", padding: 0 }}
+                        />
+                        <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>{ind.color || "#6366f1"}</span>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Width */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] w-14 shrink-0" style={{ color: "var(--text-tertiary)" }}>Width</label>
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4].map((w) => (
+                        <button
+                          key={w}
+                          onClick={() => {
+                            const newParams = { ...ind.params, _lineWidth: String(w) };
+                            updateIndicatorParams(ind.name, newParams);
+                          }}
+                          className="rounded px-1.5 py-0.5 text-[9px] transition-colors"
+                          style={{
+                            background: String(ind.params._lineWidth || "2") === String(w) ? "var(--accent)" : "var(--surface)",
+                            color: String(ind.params._lineWidth || "2") === String(w) ? "#fff" : "var(--text-muted)",
+                            border: "1px solid var(--border)",
+                          }}
+                        >
+                          {w}px
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Visibility toggle */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] w-14 shrink-0" style={{ color: "var(--text-tertiary)" }}>Visible</label>
+                    <button
+                      onClick={() => toggleIndicator(ind.name)}
+                      className="rounded px-2 py-0.5 text-[9px]"
+                      style={{
+                        background: ind.active ? "rgba(38,166,154,0.2)" : "var(--surface)",
+                        color: ind.active ? "var(--success)" : "var(--text-muted)",
+                        border: "1px solid var(--border)",
+                      }}
+                    >
+                      {ind.active ? "On" : "Off"}
+                    </button>
+                  </div>
+
+                  {/* Params (if any) */}
+                  {Object.entries(ind.params).filter(([k]) => !k.startsWith("_")).length > 0 && (
+                    <div className="pt-1" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                      <span className="text-[9px] font-semibold uppercase" style={{ color: "var(--text-muted)" }}>Parameters</span>
+                    </div>
+                  )}
+                  {Object.entries(ind.params).filter(([k]) => !k.startsWith("_")).map(([key, val]) => (
                     <div key={key} className="flex items-center gap-2">
-                      <label className="text-[10px] text-[var(--text-tertiary)] w-20 truncate" title={key}>
+                      <label className="text-[10px] w-14 shrink-0 truncate" title={key} style={{ color: "var(--text-tertiary)" }}>
                         {key.replace(/_/g, " ")}
                       </label>
                       <input
                         type="text"
                         defaultValue={String(val)}
-                        onBlur={(e) => {
-                          const newParams = { ...ind.params, [key]: e.target.value };
-                          updateIndicatorParams(ind.name, newParams);
-                        }}
+                        onBlur={(e) => updateIndicatorParams(ind.name, { ...ind.params, [key]: e.target.value })}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
-                            const newParams = { ...ind.params, [key]: (e.target as HTMLInputElement).value };
-                            updateIndicatorParams(ind.name, newParams);
+                            updateIndicatorParams(ind.name, { ...ind.params, [key]: (e.target as HTMLInputElement).value });
                             setEditingIndicator(null);
                           }
                         }}
-                        className="flex-1 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px] text-[var(--text-primary)] outline-none focus:border-slate-400"
+                        className="flex-1 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[10px] outline-none"
+                        style={{ color: "var(--text-primary)" }}
                       />
                     </div>
                   ))}
+
+                  {/* View Pine Script source */}
+                  {ind.script?.startsWith("__PINE__") && (
+                    <details className="pt-1" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                      <summary className="text-[9px] cursor-pointer" style={{ color: "var(--text-muted)" }}>View Pine Script source</summary>
+                      <pre className="mt-1 max-h-24 overflow-auto rounded p-1.5 text-[8px] leading-tight" style={{ background: "var(--surface)", color: "var(--text-tertiary)" }}>
+                        {ind.script.slice(8).substring(0, 500)}{ind.script.length > 508 ? "..." : ""}
+                      </pre>
+                    </details>
+                  )}
                 </div>
               )}
             </div>
@@ -610,52 +789,43 @@ export function RightSidebar() {
           </p>
         )}
 
-        {/* Import Pine Script */}
-        {!showPineImport ? (
-          <button
-            onClick={() => setShowPineImport(true)}
-            className="mt-2 w-full rounded border border-dashed border-[var(--border)] px-2 py-1.5 text-[10px] text-[var(--text-tertiary)] hover:border-slate-400 hover:text-[var(--text-secondary)]"
-          >
-            + Import Pine Script
-          </button>
-        ) : (
-          <div className="mt-2 rounded border border-[var(--border)] bg-[var(--surface-2)]/50 p-2">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase">Paste Pine Script</span>
-              <button
-                onClick={() => { setShowPineImport(false); setPineInput(""); }}
-                className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] text-xs"
-              >
-                &times;
-              </button>
-            </div>
-            <textarea
-              value={pineInput}
-              onChange={(e) => setPineInput(e.target.value)}
-              placeholder="//@version=5&#10;indicator(...)&#10;..."
-              className="w-full h-24 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 font-mono text-[10px] text-[var(--text-secondary)] outline-none focus:border-slate-400 resize-none"
-            />
-            <button
-              onClick={handlePineImport}
-              disabled={!pineInput.trim() || loading}
-              className="mt-1 w-full rounded bg-slate-900 px-2 py-1.5 text-[10px] font-medium text-white hover:bg-slate-800 disabled:opacity-40"
-            >
-              {loading ? "Converting..." : "Convert & Add Indicator"}
-            </button>
-          </div>
-        )}
       </Section>
 
-      {/* ─── Strategy Summary (when in strategy mode) ─── */}
-      {activeMode === "strategy" && <StrategySummary />}
+      {/* Strategy form is rendered inside the chat area as a floating card */}
 
-      {/* ─── Mode + Chat / Code ─── */}
+      {/* ─── Agent Section ─── */}
       <div className="flex flex-1 flex-col min-h-0">
+        {/* Agent header with floating mode toggle */}
+        <div className="flex items-center justify-center py-1.5" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+          <span className="text-[8px] font-bold uppercase tracking-widest mr-2" style={{ color: "var(--accent)", opacity: 0.6 }}>Agent</span>
+          <div className="relative flex rounded-md p-[2px]" style={{ background: "var(--surface-2)" }}>
+            <div
+              className="absolute top-[2px] bottom-[2px] rounded transition-all duration-200 ease-out"
+              style={{
+                width: "calc(50% - 2px)",
+                left: activeMode === "pattern" ? "2px" : "50%",
+                background: "var(--surface)",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+              }}
+            />
+            {(["pattern", "strategy"] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => useStore.getState().setMode(mode)}
+                className="relative z-10 rounded px-3 py-0.5 text-[9px] font-semibold transition-colors"
+                style={{ color: activeMode === mode ? "var(--text-primary)" : "var(--text-muted)" }}
+              >
+                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* View toggle: Chat / Code */}
         <div className="flex" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
           <button
             onClick={() => setView("chat")}
-            className={`flex-1 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+            className={`flex-1 py-1 text-[9px] font-semibold uppercase tracking-wider transition-colors ${
               view === "chat"
                 ? "text-[var(--text-primary)]"
                 : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
@@ -677,37 +847,23 @@ export function RightSidebar() {
 
         {/* Content */}
         <div className="relative flex-1 overflow-y-auto">
-          {/* Floating segmented control */}
-          <div className="sticky top-0 z-10 flex justify-center py-1.5" style={{ background: "var(--surface)" }}>
-            <div className="relative flex rounded-md p-[2px]" style={{ background: "var(--surface-2)", fontSize: 0 }}>
-              <div
-                className="absolute top-[2px] bottom-[2px] rounded transition-all duration-200 ease-out"
-                style={{
-                  width: "calc(50% - 2px)",
-                  left: activeMode === "pattern" ? "2px" : "50%",
-                  background: "var(--surface)",
-                  boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
-                }}
-              />
-              {(["pattern", "strategy"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => useStore.getState().setMode(mode)}
-                  className="relative z-10 rounded px-3 py-0.5 text-[10px] font-semibold transition-colors"
-                  style={{ color: activeMode === mode ? "var(--text-primary)" : "var(--text-muted)" }}
-                >
-                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {view === "chat" ? (
             <div className="p-3 space-y-3">
+              {/* Strategy form card (floating in chat) */}
+              {activeMode === "strategy" && (
+                <div className="mb-3">
+                  <StrategyForm
+                    onSubmit={handleStrategySubmit}
+                    loading={loading}
+                    initialConfig={strategyConfig || undefined}
+                  />
+                </div>
+              )}
+
               {messages.length === 0 && (
-                <p className="text-[12px] text-center mt-6" style={{ color: "var(--text-tertiary)" }}>
+                <p className="text-[12px] text-center mt-4" style={{ color: "var(--text-tertiary)" }}>
                   {activeMode === "strategy"
-                    ? "Let's build a strategy! Describe your entry signal to get started."
+                    ? "Fill the form above and click Generate & Run."
                     : "Describe a pattern hypothesis or strategy in natural language."}
                 </p>
               )}
@@ -729,6 +885,14 @@ export function RightSidebar() {
                   >
                     {msg.role === "user" ? "You" : "Agent"}
                   </span>
+                  {msg.image && (
+                    <img
+                      src={msg.image}
+                      alt="Pattern snapshot"
+                      className="w-full rounded mb-1.5"
+                      style={{ border: "1px solid var(--border)", maxHeight: 120 }}
+                    />
+                  )}
                   <span className="whitespace-pre-wrap">{msg.content}</span>
                 </div>
               ))}
@@ -749,7 +913,7 @@ export function RightSidebar() {
           <div className="flex gap-2 border-t border-[var(--border-subtle)] p-2">
             <button
               onClick={activeMode === "strategy" ? handleBacktest : handleRun}
-              disabled={loading || !activeDataset || runState === "running" || (activeMode === "strategy" && strategyDraft?.state !== "complete")}
+              disabled={loading || !activeDataset || runState === "running" || (activeMode === "strategy" && !currentScript)}
               className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-all ${
                 runState === "running"
                   ? "bg-amber-500 text-white animate-pulse"
@@ -776,7 +940,7 @@ export function RightSidebar() {
             </button>
             {patternMatches.length > 0 && (
               <button
-                onClick={() => setPatternMatches([])}
+                onClick={() => { setPatternMatches([]); setPendingFingerprint(null); }}
                 className="rounded border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-50 hover:text-red-500"
               >
                 Clear

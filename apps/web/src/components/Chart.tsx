@@ -299,7 +299,7 @@ export function Chart({
     if (!markersRef.current && seriesRef.current) {
       markersRef.current = createSeriesMarkers(seriesRef.current, []);
     }
-  }, [data]);
+  }, [data, darkMode]);
 
   // Update pattern highlight boxes
   useEffect(() => {
@@ -406,10 +406,25 @@ export function Chart({
         };
 
         if (ind.custom && (ind as any)._precomputed) {
-          // Pine Script indicator — use pre-computed values
+          // Pine Script indicator with pre-computed values
           const values = (ind as any)._precomputed as (number | null)[];
           if (Array.isArray(values) && values.length > 0) {
             addLine(values);
+          }
+          // Also re-run PineTS to restore drawings if script exists
+          if (ind.script?.startsWith("__PINE__")) {
+            import("@/lib/pine/runPineScript").then(({ runPineScript }) => {
+              const pineCode = ind.script!.slice(8);
+              runPineScript(pineCode, data).then((result) => {
+                const hasDrawings = result.drawings && (
+                  result.drawings.boxes.length > 0 || result.drawings.lines.length > 0 ||
+                  result.drawings.labels.length > 0 || (result.drawings.fills?.length || 0) > 0
+                );
+                if (hasDrawings || Object.keys(result.plots).length > 0) {
+                  useStore.getState().setPineDrawings(result.drawings, result.plots);
+                }
+              }).catch(() => {});
+            });
           }
         } else if (ind.custom && ind.script && !ind.script.startsWith("__PINE__")) {
           // Custom JS indicator — run script in Web Worker
@@ -423,13 +438,20 @@ export function Chart({
               console.warn(`Custom indicator "${ind.name}" failed:`, err.message);
             });
         } else if (ind.custom && ind.script?.startsWith("__PINE__")) {
-          // Pine Script indicator — re-run with PineTS
+          // Pine Script indicator without precomputed — re-run fully
           import("@/lib/pine/runPineScript").then(({ runPineScript }) => {
-            const pineCode = ind.script!.slice(8); // strip __PINE__ prefix
+            const pineCode = ind.script!.slice(8);
             runPineScript(pineCode, data).then((result) => {
               if (result.plotNames.length > 0) {
                 const firstPlot = result.plots[result.plotNames[0]];
                 if (firstPlot) addLine(firstPlot);
+              }
+              const hasDrawings = result.drawings && (
+                result.drawings.boxes.length > 0 || result.drawings.lines.length > 0 ||
+                result.drawings.labels.length > 0 || (result.drawings.fills?.length || 0) > 0
+              );
+              if (hasDrawings || Object.keys(result.plots).length > 0) {
+                useStore.getState().setPineDrawings(result.drawings, result.plots);
               }
             }).catch(() => {});
           });
@@ -562,6 +584,53 @@ export function Chart({
     const bars = getSelectedBars();
     if (!bars || bars.length === 0) return;
 
+    // Capture snapshot of the selection area (all canvas layers composited)
+    let snapshotUrl: string | null = null;
+    try {
+      const container = containerRef.current;
+      if (container) {
+        const allCanvases = container.querySelectorAll("canvas");
+        const prim = patternPrimitiveRef.current;
+        const chart = chartRef.current;
+        const series = seriesRef.current;
+        if (prim?.triggerBox && chart && series && allCanvases.length > 0) {
+          const ts = chart.timeScale();
+          const x1 = ts.timeToCoordinate(prim.triggerBox.startTime);
+          const tradeEnd = prim.tradeBox ? prim.tradeBox.endTime : prim.triggerBox.endTime;
+          const x2 = ts.timeToCoordinate(tradeEnd);
+          const allPrices = bars.flatMap(b => [b.high, b.low]);
+          const maxP = Math.max(...allPrices);
+          const minP = Math.min(...allPrices);
+          const y1 = series.priceToCoordinate(maxP * 1.02);
+          const y2 = series.priceToCoordinate(minP * 0.98);
+
+          if (x1 != null && x2 != null && y1 != null && y2 != null) {
+            const dpr = window.devicePixelRatio || 1;
+            const sx = Math.min(x1, x2) * dpr;
+            const sy = Math.min(y1, y2) * dpr;
+            const sw = Math.abs(x2 - x1) * dpr;
+            const sh = Math.abs(y2 - y1) * dpr;
+
+            if (sw > 10 && sh > 10) {
+              const tempCanvas = document.createElement("canvas");
+              tempCanvas.width = sw;
+              tempCanvas.height = sh;
+              const ctx = tempCanvas.getContext("2d");
+              if (ctx) {
+                // Composite all canvas layers (candles + primitives/overlays)
+                for (const cvs of allCanvases) {
+                  ctx.drawImage(cvs, sx, sy, sw, sh, 0, 0, sw, sh);
+                }
+                snapshotUrl = tempCanvas.toDataURL("image/png", 0.8);
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Snapshot capture failed — continue without it
+    }
+
     const p = patternPrimitiveRef.current;
     const triggerBars = p?.triggerBox
       ? data.filter(b => (b.time as number) >= (p.triggerBox!.startTime as number) && (b.time as number) <= (p.triggerBox!.endTime as number))
@@ -578,10 +647,10 @@ export function Chart({
     setTriggerRatio(triggerLen / bars.length);
 
     // ── BUILD MATHEMATICAL PROMPT ──
-    // Sample shape to ~15 points
-    const shape = fingerprint.patternShape;
-    const step = Math.max(1, Math.floor(shape.length / 15));
-    const sampled = shape.filter((_, i) => i % step === 0);
+    // Use ONLY trigger bars for the detection shape (not trade bars)
+    const triggerShape = fingerprint.patternShape.slice(0, triggerLen);
+    const step = Math.max(1, Math.floor(triggerShape.length / 15));
+    const sampled = triggerShape.filter((_, i) => i % step === 0);
     const shapeStr = sampled.map(v => v.toFixed(2)).join(", ");
 
     // Candle structure summary
@@ -610,18 +679,34 @@ export function Chart({
     const triggerDir = (fingerprint.triggerTrend || 0) > 0 ? "rising" : "falling";
     const tradeDir = (fingerprint.tradeTrend || 0) > 0 ? "rising" : "falling";
 
+    // Trade entry/exit details
+    const tradeBarData = bars.slice(triggerLen);
+    const entryPrice = tradeBarData.length > 0 ? tradeBarData[0].open : bars[bars.length - 1].close;
+    const exitPrice = tradeBarData.length > 0 ? tradeBarData[tradeBarData.length - 1].close : entryPrice;
+    const tradePnl = entryPrice !== 0 ? ((exitPrice - entryPrice) / entryPrice) * 100 : 0;
+    const tradeDirection = exitPrice >= entryPrice ? "LONG" : "SHORT";
+
     const draft = [
       `Find this ${bars.length}-bar pattern (${triggerLen} trigger + ${tradeLen} trade bars, scale-free):`,
       ``,
-      `SHAPE: [${shapeStr}] (${sampled.length} points, normalized 0-1)`,
+      `GOAL: Detect the trigger setup, then predict the trade outcome.`,
+      `TRADE RESULT: ${tradeDirection} entry after trigger → ${tradePnl >= 0 ? "+" : ""}${tradePnl.toFixed(2)}% move (entry at trigger end, exit at trade box end)`,
+      ``,
+      `TRIGGER SHAPE: [${shapeStr}] (${sampled.length} bars, trigger only, normalized 0-1)`,
       `STRUCTURE: ${bullCount} bull / ${bearCount} bear candles, avg body=${(avgBody * 100).toFixed(1)}%, avg body/range=${(avgWickRatio * 100).toFixed(0)}%`,
       `TRIGGER BOX: ${triggerRatio}% of pattern, height ${((fingerprint.triggerHeightRatio || 0) * 100).toFixed(1)}% of range, trend ${triggerDir}`,
       `TRADE BOX: ${100 - triggerRatio}% of pattern, height ${((fingerprint.tradeHeightRatio || 0) * 100).toFixed(1)}% of range, trend ${tradeDir}, shifts ${fingerprint.heightShift! > 0 ? "up" : "down"} ${Math.abs((fingerprint.heightShift || 0) * 100).toFixed(1)}%`,
+      `TRADE ENTRY/EXIT: entry at trigger box right edge, exit ${tradeLen} bars later, ${tradePnl >= 0 ? "+" : ""}${tradePnl.toFixed(2)}% change`,
       `OVERALL: ${fingerprint.trendAngle > 0 ? "up" : "down"} ${Math.abs(fingerprint.priceChangePercent).toFixed(1)}%, volatility ${fingerprint.volatility > 0.02 ? "high" : fingerprint.volatility > 0.01 ? "moderate" : "low"}`,
       indMath ? `INDICATORS: ${indMath}` : "",
       ``,
-      `RULES: Sliding window of EXACTLY ${sampled.length} bars. Normalize each window's closes to 0-1 (min=0, max=1). Compute Pearson correlation with reference shape. Match if correlation > 0.55 (use 0.55 NOT higher). Do NOT add extra filters — only correlation. Set pattern_type to "${tradeDir}".`,
+      `RULES: Detect the TRIGGER setup only (${sampled.length} bars). Sliding window of EXACTLY ${sampled.length} bars. Normalize each window's closes to 0-1. Pearson correlation > 0.55. For each match, set start_idx to window start and end_idx to window end (= trade entry point). Do NOT include the trade bars in the detection window. Set pattern_type to "${tradeDirection.toLowerCase()}".`,
     ].filter(v => v !== undefined && v !== "").join("\n");
+
+    // Add snapshot image to chat if captured
+    if (snapshotUrl) {
+      addMessage({ role: "user", content: "Pattern selection snapshot:", image: snapshotUrl });
+    }
 
     setChatInputDraft(draft);
 

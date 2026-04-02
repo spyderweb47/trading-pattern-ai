@@ -1,10 +1,8 @@
 """
-Strategy agent — conversational strategy builder.
+Strategy agent v2 — structured strategy builder.
 
-Guides users through building a trading strategy step-by-step:
-entry conditions → exit conditions → risk management → complete script.
-
-Generates JavaScript strategy scripts that run in the browser.
+Generates JavaScript strategy scripts from structured config input,
+then analyzes backtest results with improvement suggestions.
 """
 
 from __future__ import annotations
@@ -15,128 +13,164 @@ from typing import Any, Dict, List, Optional
 from core.agents.llm_client import chat_completion, is_available as llm_available
 
 
-STRATEGY_SYSTEM_PROMPT = """You are an expert trading strategy builder AI assistant.
+STRATEGY_GENERATE_PROMPT = """You are a quantitative trading strategy engineer.
 
-You help users build trading strategies step-by-step through conversation.
-You are proactive — you ask clarifying questions and suggest improvements.
+Generate a JavaScript strategy script from the user's structured config.
 
-## Conversation Flow
-Based on the current strategy_state, guide the user:
+## Config
+- Entry: {entry_condition}
+- Exit: {exit_condition}
+- Take Profit: {tp_type} {tp_value}
+- Stop Loss: {sl_type} {sl_value}
+- Max Drawdown: {max_drawdown}%
+- Seed Amount: ${seed_amount}
+- Special: {special}
 
-1. **needs_entry**: Ask about entry conditions. What signals trigger a trade?
-   - Suggest common approaches: MA crossover, RSI oversold, breakout, etc.
-   - Ask: long only, short only, or both?
+## Script Requirements
+The script receives `data` (array of {{time, open, high, low, close, volume}}) and `config` ({{stopLoss, takeProfit, maxDrawdown, seedAmount}}).
 
-2. **needs_exit**: Entry is defined. Now ask about exit conditions.
-   - Suggest: opposite signal, time-based, trailing stop, target hit
-   - Ask: what invalidates the trade?
+MUST return: {{ trades: [...], equity: [...] }}
 
-3. **needs_risk**: Entry + exit defined. Ask about risk management.
-   - Suggest stop-loss (1-5%), take-profit (2-10%), position sizing
-   - Warn about risk/reward ratio
+Each trade object MUST have ALL these fields:
+- type: 'long' or 'short'
+- entryIdx: number (bar index of entry)
+- exitIdx: number (bar index of exit)
+- entryPrice: number
+- exitPrice: number
+- pnl: number (dollar profit/loss)
+- pnlPercent: number (percentage profit/loss)
+- reason: string ('signal', 'stop_loss', 'take_profit', 'max_drawdown')
+- entryReason: string (why entered)
+- exitReason: string (why exited)
+- maxAdverseExcursion: number (worst unrealized PnL during trade)
+- maxFavorableExcursion: number (best unrealized PnL during trade)
+- holdingBars: number (how many bars the trade was held)
 
-4. **complete**: All defined. Generate the full strategy script.
-
-## Response Format
-Always return a JSON object (no markdown fences):
-{
-  "reply": "Your conversational message to the user",
-  "strategy_state": "needs_entry|needs_exit|needs_risk|complete",
-  "entry_rules": ["rule 1", "rule 2"],
-  "exit_rules": ["rule 1", "rule 2"],
-  "stop_loss": null or number (percentage, e.g. 2.0),
-  "take_profit": null or number (percentage, e.g. 5.0),
-  "script": null or "full JavaScript code"
-}
-
-## Script Format (only when state is "complete")
-The JavaScript strategy script:
-- Receives `data` array: [{time, open, high, low, close, volume}, ...]
-- Receives `config` object: {stopLoss, takeProfit, positionSize}
-- Must return: {trades: [...], signals: [...], equity: [...]}
-- Each trade: {type:'long'|'short', entryIdx, exitIdx, entryPrice, exitPrice, pnl, pnlPercent, reason}
-- Each signal: {idx, type:'entry_long'|'entry_short'|'exit', price}
-- equity: array of portfolio value at each bar (start at 10000)
-- Include helper functions (SMA, EMA, RSI) inline
-- Use simple for loops: for (let i = 0; i < data.length; i++)
+equity: array of portfolio value at each bar (starting at seedAmount).
 
 ## Rules
-- Be concise: 2-4 sentences per reply
-- Always suggest concrete examples
-- If user is vague, suggest specific values
-- Do NOT use import/require/fetch in scripts
-"""
-
-
-STRATEGY_GENERATE_PROMPT = """Generate a complete JavaScript trading strategy script.
-
-Entry rules: {entry_rules}
-Exit rules: {exit_rules}
-Stop loss: {stop_loss}%
-Take profit: {take_profit}%
-
-The script receives `data` (OHLC array) and `config` ({{stopLoss, takeProfit}}).
-Include inline SMA/EMA/RSI helpers as needed.
-Track trades, signals, and equity (start 10000).
-Return {{ trades, signals, equity }}.
+- Include inline SMA/EMA/RSI helper functions as needed
+- Use simple for loops: for (let i = 0; i < data.length; i++)
+- Track max drawdown and stop trading if exceeded
+- Do NOT use import/require/fetch
+- Handle edge cases (enough bars for indicators)
 
 Return ONLY JavaScript code. No markdown fences."""
+
+
+STRATEGY_ANALYSIS_PROMPT = """You are a trading strategy analyst. Analyze these backtest results and provide:
+
+1. **Overall Assessment** (2-3 sentences): Is this strategy profitable? What's the risk/reward profile?
+2. **Strengths**: What works well?
+3. **Weaknesses**: What's concerning?
+4. **Suggestions**: 3-5 specific improvements the user should try
+
+## Results
+- Total Trades: {total_trades}
+- Win Rate: {win_rate}%
+- Profit Factor: {profit_factor}
+- Sharpe Ratio: {sharpe}
+- Max Drawdown: {max_drawdown}%
+- Total Return: {total_return}%
+- Avg Win: ${avg_win}, Avg Loss: ${avg_loss}
+- Largest Win: ${largest_win}, Largest Loss: ${largest_loss}
+- Win Streak: {win_streak}, Lose Streak: {lose_streak}
+
+## Strategy Config
+- Entry: {entry_condition}
+- Exit: {exit_condition}
+- TP: {tp}, SL: {sl}
+
+Be concise and actionable. Return as JSON:
+{{"analysis": "...", "suggestions": ["...", "..."]}}"""
 
 
 class StrategyAgent:
     def __init__(self, model: str = "gpt-4o-mini") -> None:
         self.model = model
 
-    def generate(
-        self,
-        message: str,
-        strategy_state: str = "needs_entry",
-        entry_rules: Optional[List[str]] = None,
-        exit_rules: Optional[List[str]] = None,
-        stop_loss: Optional[float] = None,
-        take_profit: Optional[float] = None,
-        current_script: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    def generate_from_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate a strategy script from structured config."""
         if llm_available():
-            return self._generate_with_llm(
-                message, strategy_state, entry_rules or [],
-                exit_rules or [], stop_loss, take_profit, current_script
-            )
-        return self._generate_mock(message, strategy_state)
+            return self._generate_with_llm(config)
+        return self._generate_mock(config)
 
-    def _generate_with_llm(
-        self,
-        message: str,
-        strategy_state: str,
-        entry_rules: List[str],
-        exit_rules: List[str],
-        stop_loss: Optional[float],
-        take_profit: Optional[float],
-        current_script: Optional[str],
-    ) -> Dict[str, Any]:
-        parts = [f"Current strategy_state: {strategy_state}"]
-        if entry_rules:
-            parts.append(f"Entry rules: {entry_rules}")
-        if exit_rules:
-            parts.append(f"Exit rules: {exit_rules}")
-        if stop_loss is not None:
-            parts.append(f"Stop loss: {stop_loss}%")
-        if take_profit is not None:
-            parts.append(f"Take profit: {take_profit}%")
-        if current_script:
-            parts.append("User has an existing script and wants to modify it.")
-        parts.append(f"\nUser: {message}")
+    def analyze_results(self, config: Dict[str, Any], metrics: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze backtest results and return suggestions."""
+        if llm_available():
+            return self._analyze_with_llm(config, metrics)
+        return {
+            "analysis": "Strategy completed with the given parameters. Review the trade list for details.",
+            "suggestions": ["Try adjusting the entry conditions", "Consider different TP/SL ratios", "Test on different timeframes"],
+        }
 
-        response_text = chat_completion(
-            system_prompt=STRATEGY_SYSTEM_PROMPT,
-            user_message="\n".join(parts),
-            model=self.model,
-            temperature=0.3,
+    def _generate_with_llm(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        tp = config.get("takeProfit", {})
+        sl = config.get("stopLoss", {})
+
+        prompt = STRATEGY_GENERATE_PROMPT.format(
+            entry_condition=config.get("entryCondition", ""),
+            exit_condition=config.get("exitCondition", ""),
+            tp_type=tp.get("type", "percentage"),
+            tp_value=tp.get("value", 5),
+            sl_type=sl.get("type", "percentage"),
+            sl_value=sl.get("value", 2),
+            max_drawdown=config.get("maxDrawdown", 20),
+            seed_amount=config.get("seedAmount", 10000),
+            special=config.get("specialInstructions", "None"),
         )
 
-        # Parse JSON response
+        script = chat_completion(
+            system_prompt=prompt,
+            user_message="Generate the strategy script now.",
+            model=self.model,
+            temperature=0.2,
+        )
+
+        # Strip fences
+        script = script.strip()
+        if script.startswith("```"):
+            nl = script.index("\n") if "\n" in script else len(script)
+            script = script[nl + 1:]
+            if script.endswith("```"):
+                script = script[:-3]
+            script = script.strip()
+
+        return {"script": script, "explanation": "Strategy script generated from your configuration."}
+
+    def _analyze_with_llm(self, config: Dict[str, Any], metrics: Dict[str, Any]) -> Dict[str, Any]:
+        tp = config.get("takeProfit", {})
+        sl = config.get("stopLoss", {})
+
+        prompt = STRATEGY_ANALYSIS_PROMPT.format(
+            total_trades=metrics.get("totalTrades", 0),
+            win_rate=round(metrics.get("winRate", 0) * 100, 1),
+            profit_factor=metrics.get("profitFactor", 0),
+            sharpe=metrics.get("sharpeRatio", 0),
+            max_drawdown=round(metrics.get("maxDrawdown", 0) * 100, 1),
+            total_return=round(metrics.get("totalReturn", 0) * 100, 1),
+            avg_win=round(metrics.get("avgWin", 0), 2),
+            avg_loss=round(metrics.get("avgLoss", 0), 2),
+            largest_win=round(metrics.get("largestWin", 0), 2),
+            largest_loss=round(metrics.get("largestLoss", 0), 2),
+            win_streak=metrics.get("winStreak", 0),
+            lose_streak=metrics.get("loseStreak", 0),
+            entry_condition=config.get("entryCondition", ""),
+            exit_condition=config.get("exitCondition", ""),
+            tp=f"{tp.get('type', 'percentage')} {tp.get('value', 5)}",
+            sl=f"{sl.get('type', 'percentage')} {sl.get('value', 2)}",
+        )
+
+        response = chat_completion(
+            system_prompt=prompt,
+            user_message="Analyze now.",
+            model=self.model,
+            temperature=0.3,
+            max_tokens=500,
+        )
+
         try:
-            cleaned = response_text.strip()
+            cleaned = response.strip()
             if cleaned.startswith("```"):
                 nl = cleaned.index("\n") if "\n" in cleaned else len(cleaned)
                 cleaned = cleaned[nl + 1:]
@@ -144,92 +178,25 @@ class StrategyAgent:
                     cleaned = cleaned[:-3]
                 cleaned = cleaned.strip()
             result = json.loads(cleaned)
+            return result
         except json.JSONDecodeError:
-            result = {
-                "reply": response_text,
-                "strategy_state": strategy_state,
-                "entry_rules": entry_rules,
-                "exit_rules": exit_rules,
-                "stop_loss": stop_loss,
-                "take_profit": take_profit,
-                "script": None,
-            }
+            return {"analysis": response, "suggestions": []}
 
-        # If complete but no script, generate one
-        if result.get("strategy_state") == "complete" and not result.get("script"):
-            result["script"] = self._generate_script(
-                result.get("entry_rules", entry_rules),
-                result.get("exit_rules", exit_rules),
-                result.get("stop_loss", stop_loss),
-                result.get("take_profit", take_profit),
-            )
-
-        return result
-
-    def _generate_script(self, entry_rules, exit_rules, stop_loss, take_profit):
-        prompt = STRATEGY_GENERATE_PROMPT.format(
-            entry_rules=", ".join(entry_rules) if entry_rules else "Not specified",
-            exit_rules=", ".join(exit_rules) if exit_rules else "Opposite of entry",
-            stop_loss=stop_loss or 2,
-            take_profit=take_profit or 5,
-        )
-        script = chat_completion(
-            system_prompt=prompt,
-            user_message="Generate the strategy script now.",
-            model=self.model,
-            temperature=0.2,
-        )
-        script = script.strip()
-        if script.startswith("```"):
-            nl = script.index("\n") if "\n" in script else len(script)
-            script = script[nl + 1:]
-            if script.endswith("```"):
-                script = script[:-3]
-        return script.strip()
-
-    def _generate_mock(self, message: str, strategy_state: str) -> Dict[str, Any]:
-        mocks = {
-            "needs_entry": {
-                "reply": "Let's build your strategy! What entry signal do you want? For example: 'Buy when RSI drops below 30' or 'Enter long when 9 EMA crosses above 21 EMA'.",
-                "strategy_state": "needs_entry",
-            },
-            "needs_exit": {
-                "reply": "Good entry rules! When should we exit? Options: opposite signal, fixed target, trailing stop, or time-based.",
-                "strategy_state": "needs_exit",
-            },
-            "needs_risk": {
-                "reply": "Almost there! I suggest: Stop-loss at 2%, Take-profit at 5% (2.5:1 reward/risk). Want to adjust?",
-                "strategy_state": "needs_risk",
-                "stop_loss": 2.0,
-                "take_profit": 5.0,
-            },
-            "complete": {
-                "reply": "Strategy complete! EMA crossover with RSI filter. Click 'Run Backtest' to test it.",
-                "strategy_state": "complete",
-                "entry_rules": ["9 EMA crosses above 21 EMA"],
-                "exit_rules": ["9 EMA crosses below 21 EMA"],
-                "stop_loss": 2.0,
-                "take_profit": 5.0,
-                "script": MOCK_STRATEGY_SCRIPT,
-            },
+    def _generate_mock(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "script": MOCK_STRATEGY,
+            "explanation": "Generated a simple EMA crossover strategy. Click Run to test it.",
         }
-        base = mocks.get(strategy_state, mocks["needs_entry"])
-        base.setdefault("entry_rules", [])
-        base.setdefault("exit_rules", [])
-        base.setdefault("stop_loss", None)
-        base.setdefault("take_profit", None)
-        base.setdefault("script", None)
-        return base
 
 
-MOCK_STRATEGY_SCRIPT = """// EMA Crossover Strategy
-const trades = [];
-const signals = [];
+MOCK_STRATEGY = """const trades = [];
 const equity = [];
-let capital = 10000;
+let capital = config.seedAmount || 10000;
 let position = null;
 const slPct = config.stopLoss / 100;
 const tpPct = config.takeProfit / 100;
+const maxDD = config.maxDrawdown / 100;
+let peakCapital = capital;
 
 function ema(closes, period) {
   const k = 2 / (period + 1);
@@ -243,32 +210,54 @@ const ema9 = ema(closes, 9);
 const ema21 = ema(closes, 21);
 
 for (let i = 21; i < data.length; i++) {
+  const dd = (peakCapital - capital) / peakCapital;
+  if (dd > maxDD) { equity.push(capital); continue; }
+
   if (position) {
-    const pnl = position.type === 'long'
+    const pnlPct = position.type === 'long'
       ? (data[i].close - position.ep) / position.ep
       : (position.ep - data[i].close) / position.ep;
-    let exit = false, reason = '';
-    if (pnl <= -slPct) { exit = true; reason = 'stop_loss'; }
-    else if (pnl >= tpPct) { exit = true; reason = 'take_profit'; }
-    else if (position.type === 'long' && ema9[i] < ema21[i] && ema9[i-1] >= ema21[i-1]) { exit = true; reason = 'signal'; }
-    else if (position.type === 'short' && ema9[i] > ema21[i] && ema9[i-1] <= ema21[i-1]) { exit = true; reason = 'signal'; }
+    const mae = position.type === 'long'
+      ? (Math.min(...data.slice(position.ei, i+1).map(d=>d.low)) - position.ep) / position.ep
+      : (position.ep - Math.max(...data.slice(position.ei, i+1).map(d=>d.high))) / position.ep;
+    const mfe = position.type === 'long'
+      ? (Math.max(...data.slice(position.ei, i+1).map(d=>d.high)) - position.ep) / position.ep
+      : (position.ep - Math.min(...data.slice(position.ei, i+1).map(d=>d.low))) / position.ep;
+
+    let exit = false, reason = '', exitReason = '';
+    if (pnlPct <= -slPct) { exit = true; reason = 'stop_loss'; exitReason = 'Stop loss hit'; }
+    else if (pnlPct >= tpPct) { exit = true; reason = 'take_profit'; exitReason = 'Take profit reached'; }
+    else if (position.type === 'long' && ema9[i] < ema21[i]) { exit = true; reason = 'signal'; exitReason = 'EMA bearish crossover'; }
+    else if (position.type === 'short' && ema9[i] > ema21[i]) { exit = true; reason = 'signal'; exitReason = 'EMA bullish crossover'; }
+
     if (exit) {
-      const p = capital * pnl;
-      capital += p;
-      trades.push({ type: position.type, entryIdx: position.ei, exitIdx: i, entryPrice: position.ep, exitPrice: data[i].close, pnl: Math.round(p*100)/100, pnlPercent: Math.round(pnl*10000)/100, reason });
-      signals.push({ idx: i, type: 'exit', price: data[i].close });
+      const pnl = capital * pnlPct;
+      capital += pnl;
+      if (capital > peakCapital) peakCapital = capital;
+      trades.push({
+        type: position.type, entryIdx: position.ei, exitIdx: i,
+        entryPrice: position.ep, exitPrice: data[i].close,
+        pnl: Math.round(pnl * 100) / 100,
+        pnlPercent: Math.round(pnlPct * 10000) / 100,
+        reason, entryReason: position.er, exitReason,
+        maxAdverseExcursion: Math.round(mae * 10000) / 100,
+        maxFavorableExcursion: Math.round(mfe * 10000) / 100,
+        holdingBars: i - position.ei
+      });
       position = null;
     }
   }
+
   if (!position) {
     if (ema9[i] > ema21[i] && ema9[i-1] <= ema21[i-1]) {
-      position = { type: 'long', ei: i, ep: data[i].close };
-      signals.push({ idx: i, type: 'entry_long', price: data[i].close });
+      position = { type: 'long', ei: i, ep: data[i].close, er: 'EMA 9 crossed above EMA 21' };
     } else if (ema9[i] < ema21[i] && ema9[i-1] >= ema21[i-1]) {
-      position = { type: 'short', ei: i, ep: data[i].close };
-      signals.push({ idx: i, type: 'entry_short', price: data[i].close });
+      position = { type: 'short', ei: i, ep: data[i].close, er: 'EMA 9 crossed below EMA 21' };
     }
   }
-  equity.push(capital + (position ? capital * ((position.type === 'long' ? (data[i].close - position.ep) / position.ep : (position.ep - data[i].close) / position.ep)) : 0));
+
+  equity.push(capital + (position ? capital * ((position.type === 'long'
+    ? (data[i].close - position.ep) / position.ep
+    : (position.ep - data[i].close) / position.ep)) : 0));
 }
-return { trades, signals, equity };"""
+return { trades, equity };"""

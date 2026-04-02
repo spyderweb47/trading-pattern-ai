@@ -51,6 +51,51 @@ export interface Trade {
   pnl: number;
   pnlPercent: number;
   reason?: string;
+  // Expanded fields for deep analysis
+  entryIdx?: number;
+  exitIdx?: number;
+  maxAdverseExcursion?: number;
+  maxFavorableExcursion?: number;
+  holdingBars?: number;
+  drawdownAtEntry?: number;
+  entryReason?: string;
+  exitReason?: string;
+}
+
+export interface StrategyConfig {
+  entryCondition: string;
+  exitCondition: string;
+  takeProfit: { type: 'percentage' | 'fixed'; value: number };
+  stopLoss: { type: 'percentage' | 'trailing'; value: number };
+  maxDrawdown: number;
+  seedAmount: number;
+  specialInstructions: string;
+}
+
+export interface PortfolioMetrics {
+  totalTrades: number;
+  winRate: number;
+  profitFactor: number;
+  sharpeRatio: number;
+  maxDrawdown: number;
+  totalReturn: number;
+  avgWin: number;
+  avgLoss: number;
+  largestWin: number;
+  largestLoss: number;
+  avgHoldingBars: number;
+  winStreak: number;
+  loseStreak: number;
+}
+
+export interface StrategyResult {
+  config: StrategyConfig;
+  metrics: PortfolioMetrics;
+  trades: Trade[];
+  equity: number[];
+  pnlPerTrade: number[];
+  analysis: string;
+  suggestions: string[];
 }
 
 export interface BacktestResult {
@@ -65,16 +110,11 @@ export interface BacktestResult {
   annualizedReturn: number;
   trades: Trade[];
   equityCurve: { time: string; value: number }[];
-}
-
-export interface SimulationState {
-  isRunning: boolean;
-  speed: number;
-  currentBar: number;
-  totalBars: number;
-  currentPnl: number;
-  openPositions: number;
-  completedTrades: Trade[];
+  // Extended
+  metrics?: PortfolioMetrics;
+  pnlPerTrade?: number[];
+  analysis?: string;
+  suggestions?: string[];
 }
 
 export interface Message {
@@ -82,6 +122,7 @@ export interface Message {
   role: 'user' | 'agent';
   content: string;
   timestamp: string;
+  image?: string; // data URL for snapshot images
 }
 
 export interface IndicatorConfig {

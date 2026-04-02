@@ -148,14 +148,31 @@ export function PineScriptPanel() {
         const displayName = result.plotNames.length === 1 ? indName : `${indName} — ${plotName}`;
         const color = INDICATOR_COLORS[(indicators.length + i) % INDICATOR_COLORS.length];
 
+        // Extract unique colors from drawings (dynamic color lines)
+        const drawingColors = new Set<string>();
+        if (result.drawings?.lines) {
+          for (const l of result.drawings.lines) drawingColors.add(l.color);
+        }
+        const plotColors = [...drawingColors].filter(c => c !== "#ffffff" && c !== "transparent");
+
+        // Also extract color inputs from Pine Script source
+        const colorInputMatches = code.matchAll(/input\.color\s*\(\s*([^,)]+)/g);
+        const inputColors: string[] = [];
+        for (const m of colorInputMatches) {
+          const val = m[1].trim().replace(/^#/, "#");
+          if (val.startsWith("#")) inputColors.push(val);
+        }
+
+        const allColors = [...new Set([...plotColors, ...inputColors])].slice(0, 5);
+
         addCustomIndicator({
           name: displayName,
           backendName: displayName.toLowerCase().replace(/\s+/g, "_"),
           active: true,
-          params: {},
+          params: allColors.length > 0 ? { _plotColors: allColors.join(",") } : {},
           script: `__PINE__${code}`,
           custom: true,
-          color,
+          color: allColors[0] || color,
           _precomputed: values,
         } as any);
       }

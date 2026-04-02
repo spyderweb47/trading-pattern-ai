@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { useStore, type Mode } from "@/store/useStore";
 import { PineScriptPanel } from "./PineScriptPanel";
+import { PortfolioAnalysis } from "./PortfolioAnalysis";
+import { TradeList } from "./TradeList";
 
 const PANEL_TABS: Record<Mode, string[]> = {
   pattern: ["Pattern Analysis", "Pine Script"],
-  strategy: ["Strategy Report", "Trade History", "Pine Script"],
+  strategy: ["Portfolio", "Trade List", "Pine Script"],
 };
 
 export function BottomPanel() {
@@ -108,13 +110,13 @@ export function BottomPanel() {
         <div className="flex-1 overflow-auto">
           {tabs[activeTab] === "Pine Script" ? (
             <PineScriptPanel />
-          ) : (
-            <>
-              {activeMode === "strategy" && activeTab === 1 && <BacktestContent tab={0} results={backtestResults} expandedTrade={expandedTrade} setExpandedTrade={setExpandedTrade} />}
-              {activeMode === "pattern" && activeTab === 0 && <PatternContent matches={patternMatches} />}
-              {activeMode === "strategy" && activeTab === 0 && <StrategyContent />}
-            </>
-          )}
+          ) : activeMode === "strategy" && activeTab === 0 ? (
+            <PortfolioAnalysis />
+          ) : activeMode === "strategy" && activeTab === 1 ? (
+            <TradeList />
+          ) : activeMode === "pattern" && activeTab === 0 ? (
+            <PatternContent matches={patternMatches} />
+          ) : null}
         </div>
       )}
     </div>
@@ -208,9 +210,8 @@ function BacktestContent({
         </thead>
         <tbody>
           {results.trades.map((trade) => (
-            <>
+            <React.Fragment key={trade.id}>
               <tr
-                key={trade.id}
                 onClick={() =>
                   setExpandedTrade(expandedTrade === trade.id ? null : trade.id)
                 }
@@ -262,7 +263,7 @@ function BacktestContent({
                   </td>
                 </tr>
               )}
-            </>
+            </React.Fragment>
           ))}
         </tbody>
       </table>
@@ -278,11 +279,44 @@ function BacktestContent({
 function PatternContent({ matches }: { matches: ReturnType<typeof useStore.getState>["patternMatches"] }) {
   const setChartFocus = useStore((s) => s.setChartFocus);
   const chartData = useStore((s) => s.chartData);
+  const lastResult = useStore((s) => s.lastScriptResult);
 
-  if (matches.length === 0) {
+  if (matches.length === 0 && !lastResult?.ran) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-[var(--text-tertiary)]">
         Run pattern detection to see analysis
+      </div>
+    );
+  }
+
+  if (matches.length === 0 && lastResult?.ran) {
+    return (
+      <div className="p-3">
+        <div className="grid grid-cols-4 gap-2 mb-3">
+          <div className="rounded border border-[var(--border-subtle)] p-2">
+            <div className="text-[10px] text-[var(--text-tertiary)] uppercase">Total</div>
+            <div className="text-sm font-semibold text-[var(--text-primary)]">0</div>
+          </div>
+          <div className="rounded border border-[var(--border-subtle)] p-2">
+            <div className="text-[10px] text-[var(--text-tertiary)] uppercase">Bullish</div>
+            <div className="text-sm font-semibold" style={{ color: "var(--success)" }}>0</div>
+          </div>
+          <div className="rounded border border-[var(--border-subtle)] p-2">
+            <div className="text-[10px] text-[var(--text-tertiary)] uppercase">Bearish</div>
+            <div className="text-sm font-semibold" style={{ color: "var(--danger)" }}>0</div>
+          </div>
+          <div className="rounded border border-[var(--border-subtle)] p-2">
+            <div className="text-[10px] text-[var(--text-tertiary)] uppercase">Status</div>
+            <div className="text-sm font-semibold" style={{ color: lastResult.error ? "var(--danger)" : "var(--text-tertiary)" }}>
+              {lastResult.error ? "Error" : "No Match"}
+            </div>
+          </div>
+        </div>
+        <p className="text-xs text-center" style={{ color: "var(--text-tertiary)" }}>
+          {lastResult.error
+            ? `Script error: ${lastResult.error}`
+            : "Script executed but found no matching patterns. Try selecting a different pattern area or lowering the threshold."}
+        </p>
       </div>
     );
   }

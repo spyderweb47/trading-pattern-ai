@@ -79,14 +79,83 @@ async def chat(req: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+PATTERN_ANALYSIS_PROMPT = """You are a trading pattern analyst. The user selected a region on their chart with a TRIGGER box (setup phase) and a TRADE box (the resulting move).
+
+Analyze the pattern data and explain:
+1. What type of pattern the TRIGGER setup looks like (e.g., bull flag, double bottom, ascending triangle, etc.)
+2. The key characteristics: candle structure, trend, indicator behavior
+3. The TRADE RESULT: what happened after the trigger — the entry/exit, price change %, and whether it was a successful trade
+4. How reliable this pattern typically is and any concerns
+
+IMPORTANT: The goal is to find the trigger setup so the user can predict the trade outcome (the entry and exit after the trigger). Explain how the trigger predicts the trade.
+
+Be concise (4-6 sentences). End by asking: "Should I create a detection script for this pattern, or would you like to adjust anything?"
+
+Do NOT generate code. Only analyze and explain."""
+
+
+CONFIRM_KEYWORDS = [
+    "yes", "proceed", "create", "generate", "go ahead", "make it",
+    "do it", "create script", "generate script", "looks good",
+    "perfect", "confirmed", "ok", "okay", "sure", "build",
+]
+
+
 async def _handle_pattern(message: str, context: dict) -> ChatResponse:
     """Handle pattern mode: generate JS pattern or indicator scripts."""
     current_script = context.get("pattern_script", "")
+
+    # Check if this is a pattern fingerprint (contains SHAPE/BOXES data)
+    is_fingerprint = "SHAPE:" in message and ("TRIGGER BOX:" in message or "BOXES:" in message)
+
+    # Check if user is confirming to proceed with script creation
+    pending_fingerprint = context.get("pending_fingerprint", "")
+    lower_msg = message.lower().strip()
+    is_confirm = any(kw in lower_msg for kw in CONFIRM_KEYWORDS)
+
+    # Priority 1: confirmation of pending fingerprint → generate script
+    if is_confirm and pending_fingerprint:
+        # User confirmed — now generate the detection script
+        result = _pattern_agent.generate(pending_fingerprint)
+        data: dict = {
+            "parameters": result["parameters"],
+            "indicators_used": result.get("indicators_used", []),
+        }
+        return ChatResponse(
+            reply=result["explanation"],
+            script=result["script"],
+            script_type=result.get("script_type", "pattern"),
+            data=data,
+        )
+
+    if is_fingerprint:
+        # First step: analyze the pattern, don't generate script yet
+        if llm_available():
+            analysis = chat_completion(
+                system_prompt=PATTERN_ANALYSIS_PROMPT,
+                user_message=message,
+                temperature=0.3,
+                max_tokens=500,
+            )
+        else:
+            analysis = (
+                "I can see a pattern selection with trigger and trade zones. "
+                "The trigger zone shows the setup phase and the trade zone shows the expected move. "
+                "Should I create a detection script for this pattern?"
+            )
+
+        return ChatResponse(
+            reply=analysis,
+            script=None,
+            script_type="pattern",
+            data={"pending_fingerprint": message},
+        )
 
     # If there's an existing script, treat the message as an edit request
     if current_script and current_script.strip():
         return await _handle_script_edit(message, current_script)
 
+    # Regular pattern/indicator request
     result = _pattern_agent.generate(message)
     data: dict = {
         "parameters": result["parameters"],
@@ -163,37 +232,44 @@ async def _handle_script_edit(message: str, current_script: str) -> ChatResponse
 
 
 async def _handle_strategy(message: str, context: dict) -> ChatResponse:
-    """Handle strategy mode: conversational strategy builder."""
-    # Extract strategy draft state from context
-    draft = context.get("strategy_draft", {})
-    strategy_state = draft.get("state", "needs_entry")
-    entry_rules = draft.get("entryRules", [])
-    exit_rules = draft.get("exitRules", [])
-    stop_loss = draft.get("stopLoss")
-    take_profit = draft.get("takeProfit")
-    current_script = context.get("pattern_script", "")
+    """Handle strategy mode: generate from structured config or analyze results."""
+    strategy_config = context.get("strategy_config")
+    analyze_request = context.get("analyze_results")
 
-    result = _strategy_agent.generate(
-        message=message,
-        strategy_state=strategy_state,
-        entry_rules=entry_rules,
-        exit_rules=exit_rules,
-        stop_loss=stop_loss,
-        take_profit=take_profit,
-        current_script=current_script or None,
-    )
+    # If analyzing results — return analysis + suggestions
+    if analyze_request and strategy_config:
+        result = _strategy_agent.analyze_results(strategy_config, analyze_request)
+        return ChatResponse(
+            reply=result.get("analysis", ""),
+            script=None,
+            script_type="strategy",
+            data={"suggestions": result.get("suggestions", [])},
+        )
+
+    # If config provided — generate strategy script
+    if strategy_config:
+        result = _strategy_agent.generate_from_config(strategy_config)
+        return ChatResponse(
+            reply=result.get("explanation", "Strategy generated."),
+            script=result.get("script"),
+            script_type="strategy",
+            data={"config": strategy_config},
+        )
+
+    # Fallback: general strategy chat
+    if llm_available():
+        reply = chat_completion(
+            system_prompt=CHAT_SYSTEM_PROMPT,
+            user_message=f"[Strategy mode] {message}",
+        )
+    else:
+        reply = "Fill in the Strategy Builder form to generate and backtest a strategy."
 
     return ChatResponse(
-        reply=result.get("reply", ""),
-        script=result.get("script"),
+        reply=reply,
+        script=None,
         script_type="strategy",
-        data={
-            "strategy_state": result.get("strategy_state", strategy_state),
-            "entry_rules": result.get("entry_rules", entry_rules),
-            "exit_rules": result.get("exit_rules", exit_rules),
-            "stop_loss": result.get("stop_loss", stop_loss),
-            "take_profit": result.get("take_profit", take_profit),
-        },
+        data={},
     )
 
 

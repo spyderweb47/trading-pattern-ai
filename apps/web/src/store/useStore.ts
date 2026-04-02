@@ -40,8 +40,10 @@ interface AppState {
   addScript: (script: Script) => void;
   removeScript: (id: string) => void;
 
-  // Messages
-  messages: Message[];
+  // Messages (per-mode)
+  patternMessages: Message[];
+  strategyMessages: Message[];
+  messages: Message[]; // derived from active mode
   addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => void;
 
   // Backtest
@@ -62,7 +64,9 @@ interface AppState {
 
   // Pattern matches
   patternMatches: PatternMatch[];
+  lastScriptResult: { ran: boolean; error?: string } | null;
   setPatternMatches: (matches: PatternMatch[]) => void;
+  setLastScriptResult: (result: { ran: boolean; error?: string } | null) => void;
 
   // Analysis
   analysisResults: AnalysisResults | null;
@@ -87,18 +91,9 @@ interface AppState {
   chatInputDraft: string;
   setChatInputDraft: (text: string) => void;
 
-  // Strategy draft
-  strategyDraft: {
-    entryRules: string[];
-    exitRules: string[];
-    stopLoss: number | null;
-    takeProfit: number | null;
-    state: string;
-    script: string | null;
-  } | null;
-  setStrategyDraft: (draft: AppState["strategyDraft"]) => void;
-  updateStrategyDraft: (partial: Partial<NonNullable<AppState["strategyDraft"]>>) => void;
-  clearStrategyDraft: () => void;
+  // Strategy config
+  strategyConfig: import('@/types').StrategyConfig | null;
+  setStrategyConfig: (config: import('@/types').StrategyConfig | null) => void;
 
   // Chart focus — zoom to a specific time range
   chartFocus: { startTime: number; endTime: number } | null;
@@ -115,7 +110,10 @@ interface AppState {
 export const useStore = create<AppState>((set) => ({
   // Mode
   activeMode: 'pattern',
-  setMode: (mode) => set({ activeMode: mode }),
+  setMode: (mode) => set((state) => ({
+    activeMode: mode,
+    messages: mode === 'strategy' ? state.strategyMessages : state.patternMessages,
+  })),
 
   // Datasets
   datasets: [],
@@ -150,18 +148,21 @@ export const useStore = create<AppState>((set) => ({
     set((state) => ({ scripts: state.scripts.filter((s) => s.id !== id) })),
 
   // Messages
+  patternMessages: [],
+  strategyMessages: [],
   messages: [],
   addMessage: (message) =>
-    set((state) => ({
-      messages: [
-        ...state.messages,
-        {
-          ...message,
-          id: crypto.randomUUID(),
-          timestamp: new Date().toISOString(),
-        },
-      ],
-    })),
+    set((state) => {
+      const newMsg = { ...message, id: crypto.randomUUID(), timestamp: new Date().toISOString() };
+      const isStrategy = state.activeMode === 'strategy';
+      const patternMessages = isStrategy ? state.patternMessages : [...state.patternMessages, newMsg];
+      const strategyMessages = isStrategy ? [...state.strategyMessages, newMsg] : state.strategyMessages;
+      return {
+        patternMessages,
+        strategyMessages,
+        messages: isStrategy ? strategyMessages : patternMessages,
+      };
+    }),
 
   // Backtest
   backtestResults: null,
@@ -178,11 +179,18 @@ export const useStore = create<AppState>((set) => ({
     { name: 'VWAP', backendName: 'vwap', active: false, params: { reset_period: '1D' } },
   ] as IndicatorConfig[],
   toggleIndicator: (name) =>
-    set((state) => ({
-      indicators: state.indicators.map((ind) =>
-        ind.name === name ? { ...ind, active: !ind.active } : ind
-      ),
-    })),
+    set((state) => {
+      const target = state.indicators.find((i) => i.name === name);
+      const isPine = target?.script?.startsWith("__PINE__") || target?._precomputed;
+      const turningOff = target?.active;
+      return {
+        indicators: state.indicators.map((ind) =>
+          ind.name === name ? { ...ind, active: !ind.active } : ind
+        ),
+        // Clear Pine drawings when a Pine indicator is toggled off
+        ...(isPine && turningOff ? { pineDrawings: null, pineDrawingsPlotData: null } : {}),
+      };
+    }),
   updateIndicatorParams: (name, params) =>
     set((state) => ({
       indicators: state.indicators.map((ind) =>
@@ -190,9 +198,15 @@ export const useStore = create<AppState>((set) => ({
       ),
     })),
   removeIndicator: (name) =>
-    set((state) => ({
-      indicators: state.indicators.filter((ind) => ind.name !== name),
-    })),
+    set((state) => {
+      const target = state.indicators.find((i) => i.name === name);
+      const isPine = target?.script?.startsWith("__PINE__") || (target as any)?._precomputed;
+      return {
+        indicators: state.indicators.filter((ind) => ind.name !== name),
+        // Clear Pine drawings when a Pine indicator is removed
+        ...(isPine ? { pineDrawings: null, pineDrawingsPlotData: null } : {}),
+      };
+    }),
   addCustomIndicator: (ind) =>
     set((state) => {
       // Prevent duplicates — replace if same name exists
@@ -219,7 +233,9 @@ export const useStore = create<AppState>((set) => ({
 
   // Pattern matches
   patternMatches: [],
+  lastScriptResult: null,
   setPatternMatches: (matches) => set({ patternMatches: matches }),
+  setLastScriptResult: (result) => set({ lastScriptResult: result }),
 
   // Analysis
   analysisResults: null,
@@ -252,16 +268,9 @@ export const useStore = create<AppState>((set) => ({
   chatInputDraft: '',
   setChatInputDraft: (text) => set({ chatInputDraft: text }),
 
-  // Strategy draft
-  strategyDraft: null,
-  setStrategyDraft: (draft) => set({ strategyDraft: draft }),
-  updateStrategyDraft: (partial) =>
-    set((state) => ({
-      strategyDraft: state.strategyDraft
-        ? { ...state.strategyDraft, ...partial }
-        : { entryRules: [], exitRules: [], stopLoss: null, takeProfit: null, state: "needs_entry", script: null, ...partial },
-    })),
-  clearStrategyDraft: () => set({ strategyDraft: null }),
+  // Strategy config
+  strategyConfig: null,
+  setStrategyConfig: (config) => set({ strategyConfig: config }),
 
   // Chart focus
   chartFocus: null,
