@@ -302,9 +302,16 @@ export function RightSidebar() {
 
       const result = await runPineScript(pineInput, runData, ds?.name || "LOCAL", tf);
 
-      if (result.error || result.plotNames.length === 0) {
-        // PineTS failed — fall back to LLM conversion with error context
-        const errMsg = result.error || "No plot output produced";
+      const hasDrawings = result.drawings && (result.drawings.boxes.length > 0 || result.drawings.lines.length > 0 || result.drawings.labels.length > 0);
+
+      // Store drawings on chart if any exist
+      if (hasDrawings) {
+        useStore.getState().setPineDrawings(result.drawings);
+      }
+
+      if (result.error && !hasDrawings && result.plotNames.length === 0) {
+        // PineTS failed with no output at all — fall back to LLM
+        const errMsg = result.error || "No output produced";
         addMessage({ role: "agent", content: `PineTS runtime error: ${errMsg}. Falling back to AI conversion...` });
 
         try {
@@ -361,7 +368,7 @@ export function RightSidebar() {
 
       addMessage({
         role: "agent",
-        content: `Pine Script "${indName}" executed: ${result.plotNames.length} plot(s) added to chart (${result.plotNames.join(", ")}).`,
+        content: `Pine Script "${indName}" executed: ${result.plotNames.length} plot(s)${hasDrawings ? `, ${result.drawings.boxes.length} boxes, ${result.drawings.lines.length} lines, ${result.drawings.labels.length} labels` : ""} added to chart.`,
       });
 
       setShowPineImport(false);
@@ -404,15 +411,14 @@ export function RightSidebar() {
   const placeholder: Record<string, string> = {
     pattern: "Describe a pattern to detect...",
     strategy: "Describe a trading strategy...",
-    backtest: "Configure and run backtest...",
   };
 
   return (
-    <div className="flex w-80 flex-col" style={{ borderLeft: "1px solid var(--border)", background: "var(--surface)" }}>
+    <div className="flex w-full h-full flex-col" style={{ background: "var(--surface)" }}>
       {/* ─── Datasets ─── */}
       <Section title="Datasets">
         {datasets.length === 0 ? (
-          <p className="text-xs text-slate-400">No datasets loaded</p>
+          <p className="text-xs text-[var(--text-tertiary)]">No datasets loaded</p>
         ) : (
           <ul className="space-y-1">
             {datasets.map((ds) => (
@@ -421,12 +427,12 @@ export function RightSidebar() {
                   onClick={() => setActiveDataset(ds.id)}
                   className={`w-full rounded px-2 py-1.5 text-left text-xs transition-colors ${
                     activeDataset === ds.id
-                      ? "bg-slate-100 text-slate-900"
-                      : "text-slate-500 hover:bg-slate-50"
+                      ? "bg-[var(--surface-2)] text-[var(--text-primary)]"
+                      : "text-[var(--text-secondary)] hover:bg-[var(--surface-2)]"
                   }`}
                 >
                   <div className="font-medium truncate">{ds.name}</div>
-                  <div className="text-slate-400">
+                  <div className="text-[var(--text-tertiary)]">
                     {ds.metadata.rows.toLocaleString()} bars
                   </div>
                 </button>
@@ -436,7 +442,7 @@ export function RightSidebar() {
         )}
         <button
           onClick={() => setShowUpload(!showUpload)}
-          className="mt-2 w-full rounded border border-dashed border-slate-300 px-2 py-1.5 text-xs text-slate-400 hover:border-slate-400 hover:text-slate-600"
+          className="mt-2 w-full rounded border border-dashed border-[var(--border)] px-2 py-1.5 text-xs text-[var(--text-tertiary)] hover:border-slate-400 hover:text-[var(--text-secondary)]"
         >
           + Upload CSV
         </button>
@@ -459,7 +465,7 @@ export function RightSidebar() {
                   className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
                     ind.active
                       ? "border-slate-900 bg-slate-900"
-                      : "border-slate-300 bg-white"
+                      : "border-[var(--border)] bg-[var(--surface)]"
                   }`}
                 >
                   {ind.active && (
@@ -479,7 +485,7 @@ export function RightSidebar() {
                   )}
                 </button>
                 <span
-                  className="text-xs text-slate-600 flex-1 cursor-pointer hover:text-slate-900"
+                  className="text-xs text-[var(--text-secondary)] flex-1 cursor-pointer hover:text-[var(--text-primary)]"
                   onClick={() =>
                     setEditingIndicator(
                       editingIndicator === ind.name ? null : ind.name
@@ -493,7 +499,7 @@ export function RightSidebar() {
                 </span>
                 <button
                   onClick={() => removeIndicator(ind.name)}
-                  className="text-slate-300 hover:text-red-400 transition-colors"
+                  className="text-[var(--text-muted)] hover:text-red-400 transition-colors"
                   title="Remove"
                 >
                   <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -504,10 +510,10 @@ export function RightSidebar() {
 
               {/* Inline param editor */}
               {editingIndicator === ind.name && (
-                <div className="ml-6 mt-1 mb-2 space-y-1 rounded border border-slate-100 bg-slate-50/50 p-2">
+                <div className="ml-6 mt-1 mb-2 space-y-1 rounded border border-[var(--border-subtle)] bg-[var(--surface-2)]/50 p-2">
                   {Object.entries(ind.params).map(([key, val]) => (
                     <div key={key} className="flex items-center gap-2">
-                      <label className="text-[10px] text-slate-400 w-20 truncate" title={key}>
+                      <label className="text-[10px] text-[var(--text-tertiary)] w-20 truncate" title={key}>
                         {key.replace(/_/g, " ")}
                       </label>
                       <input
@@ -524,7 +530,7 @@ export function RightSidebar() {
                             setEditingIndicator(null);
                           }
                         }}
-                        className="flex-1 rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700 outline-none focus:border-slate-400"
+                        className="flex-1 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px] text-[var(--text-primary)] outline-none focus:border-slate-400"
                       />
                     </div>
                   ))}
@@ -540,7 +546,7 @@ export function RightSidebar() {
             {scripts.map((script) => (
               <div
                 key={script.id}
-                className="flex items-center gap-1.5 rounded px-2 py-1 hover:bg-slate-50"
+                className="flex items-center gap-1.5 rounded px-2 py-1 hover:bg-[var(--surface-2)]"
               >
                 {/* Run button */}
                 <button
@@ -561,7 +567,7 @@ export function RightSidebar() {
                     }
                   }}
                   disabled={!activeDataset}
-                  className="text-slate-400 hover:text-emerald-500 disabled:opacity-30 transition-colors"
+                  className="text-[var(--text-tertiary)] hover:text-emerald-500 disabled:opacity-30 transition-colors"
                   title="Run"
                 >
                   <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
@@ -574,7 +580,7 @@ export function RightSidebar() {
                     setCurrentScript(script.code);
                     setView("code");
                   }}
-                  className="flex-1 truncate text-left text-xs font-medium text-slate-600 hover:text-slate-900"
+                  className="flex-1 truncate text-left text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 >
                   {script.name}
                 </button>
@@ -584,7 +590,7 @@ export function RightSidebar() {
                 {/* Delete button */}
                 <button
                   onClick={() => removeScript(script.id)}
-                  className="text-slate-300 hover:text-red-400 transition-colors"
+                  className="text-[var(--text-muted)] hover:text-red-400 transition-colors"
                   title="Delete"
                 >
                   <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -597,7 +603,7 @@ export function RightSidebar() {
         )}
 
         {scripts.length === 0 && indicators.length === 0 && (
-          <p className="mt-2 text-[10px] text-slate-400">
+          <p className="mt-2 text-[10px] text-[var(--text-tertiary)]">
             Scripts and strategies created from chat will appear here.
           </p>
         )}
@@ -606,17 +612,17 @@ export function RightSidebar() {
         {!showPineImport ? (
           <button
             onClick={() => setShowPineImport(true)}
-            className="mt-2 w-full rounded border border-dashed border-slate-300 px-2 py-1.5 text-[10px] text-slate-400 hover:border-slate-400 hover:text-slate-600"
+            className="mt-2 w-full rounded border border-dashed border-[var(--border)] px-2 py-1.5 text-[10px] text-[var(--text-tertiary)] hover:border-slate-400 hover:text-[var(--text-secondary)]"
           >
             + Import Pine Script
           </button>
         ) : (
-          <div className="mt-2 rounded border border-slate-200 bg-slate-50/50 p-2">
+          <div className="mt-2 rounded border border-[var(--border)] bg-[var(--surface-2)]/50 p-2">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] font-semibold text-slate-500 uppercase">Paste Pine Script</span>
+              <span className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase">Paste Pine Script</span>
               <button
                 onClick={() => { setShowPineImport(false); setPineInput(""); }}
-                className="text-slate-300 hover:text-slate-500 text-xs"
+                className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] text-xs"
               >
                 &times;
               </button>
@@ -625,7 +631,7 @@ export function RightSidebar() {
               value={pineInput}
               onChange={(e) => setPineInput(e.target.value)}
               placeholder="//@version=5&#10;indicator(...)&#10;..."
-              className="w-full h-24 rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-[10px] text-slate-600 outline-none focus:border-slate-400 resize-none"
+              className="w-full h-24 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 font-mono text-[10px] text-[var(--text-secondary)] outline-none focus:border-slate-400 resize-none"
             />
             <button
               onClick={handlePineImport}
@@ -641,16 +647,16 @@ export function RightSidebar() {
       {/* ─── Strategy Summary (when in strategy mode) ─── */}
       {activeMode === "strategy" && <StrategySummary />}
 
-      {/* ─── Chat / Code ─── */}
+      {/* ─── Mode + Chat / Code ─── */}
       <div className="flex flex-1 flex-col min-h-0">
-        {/* View toggle */}
-        <div className="flex border-b border-slate-100">
+        {/* View toggle: Chat / Code */}
+        <div className="flex" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
           <button
             onClick={() => setView("chat")}
             className={`flex-1 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
               view === "chat"
-                ? "text-slate-900"
-                : "text-slate-400 hover:text-slate-600"
+                ? "text-[var(--text-primary)]"
+                : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
             }`}
           >
             Chat
@@ -659,8 +665,8 @@ export function RightSidebar() {
             onClick={() => setView("code")}
             className={`flex-1 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
               view === "code"
-                ? "text-slate-900"
-                : "text-slate-400 hover:text-slate-600"
+                ? "text-[var(--text-primary)]"
+                : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
             }`}
           >
             Code
@@ -668,7 +674,32 @@ export function RightSidebar() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="relative flex-1 overflow-y-auto">
+          {/* Floating segmented control */}
+          <div className="sticky top-0 z-10 flex justify-center py-1.5" style={{ background: "var(--surface)" }}>
+            <div className="relative flex rounded-md p-[2px]" style={{ background: "var(--surface-2)", fontSize: 0 }}>
+              <div
+                className="absolute top-[2px] bottom-[2px] rounded transition-all duration-200 ease-out"
+                style={{
+                  width: "calc(50% - 2px)",
+                  left: activeMode === "pattern" ? "2px" : "50%",
+                  background: "var(--surface)",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+                }}
+              />
+              {(["pattern", "strategy"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => useStore.getState().setMode(mode)}
+                  className="relative z-10 rounded px-3 py-0.5 text-[10px] font-semibold transition-colors"
+                  style={{ color: activeMode === mode ? "var(--text-primary)" : "var(--text-muted)" }}
+                >
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {view === "chat" ? (
             <div className="p-3 space-y-3">
               {messages.length === 0 && (
@@ -713,7 +744,7 @@ export function RightSidebar() {
 
         {/* Action buttons for code view */}
         {view === "code" && currentScript && (
-          <div className="flex gap-2 border-t border-slate-100 p-2">
+          <div className="flex gap-2 border-t border-[var(--border-subtle)] p-2">
             <button
               onClick={activeMode === "strategy" ? handleBacktest : handleRun}
               disabled={loading || !activeDataset || runState === "running" || (activeMode === "strategy" && strategyDraft?.state !== "complete")}
@@ -737,14 +768,14 @@ export function RightSidebar() {
             </button>
             <button
               onClick={handleSave}
-              className="rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              className="rounded border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-2)]"
             >
               Save
             </button>
             {patternMatches.length > 0 && (
               <button
                 onClick={() => setPatternMatches([])}
-                className="rounded border border-slate-200 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-50 hover:text-red-500"
+                className="rounded border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-50 hover:text-red-500"
               >
                 Clear
               </button>

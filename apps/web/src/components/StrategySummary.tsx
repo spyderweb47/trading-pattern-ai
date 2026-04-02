@@ -20,9 +20,9 @@ export function StrategySummary() {
   };
 
   return (
-    <div className="border-b border-slate-100 px-3 py-2 bg-slate-50/50">
+    <div className="border-b border-[var(--border-subtle)] px-3 py-2 bg-[var(--surface-2)]">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
           Strategy
         </span>
         <div className="flex items-center gap-2">
@@ -35,7 +35,7 @@ export function StrategySummary() {
           </span>
           <button
             onClick={clearDraft}
-            className="text-slate-300 hover:text-red-400 text-xs"
+            className="text-[var(--text-muted)] hover:text-red-400 text-xs"
           >
             &times;
           </button>
@@ -44,15 +44,15 @@ export function StrategySummary() {
 
       {draft.entryRules.length > 0 && (
         <div className="mb-1">
-          <span className="text-[9px] text-slate-400 uppercase">Entry: </span>
-          <span className="text-[10px] text-slate-600">{draft.entryRules.join(", ")}</span>
+          <span className="text-[9px] text-[var(--text-tertiary)] uppercase">Entry: </span>
+          <span className="text-[10px] text-[var(--text-secondary)]">{draft.entryRules.join(", ")}</span>
         </div>
       )}
 
       {draft.exitRules.length > 0 && (
         <div className="mb-1">
-          <span className="text-[9px] text-slate-400 uppercase">Exit: </span>
-          <span className="text-[10px] text-slate-600">{draft.exitRules.join(", ")}</span>
+          <span className="text-[9px] text-[var(--text-tertiary)] uppercase">Exit: </span>
+          <span className="text-[10px] text-[var(--text-secondary)]">{draft.exitRules.join(", ")}</span>
         </div>
       )}
 
@@ -69,13 +69,13 @@ export function StrategySummary() {
                 setEditingSL(false);
               }}
               onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-              className="w-10 rounded border border-slate-200 px-1 py-0 text-[10px] outline-none"
+              className="w-10 rounded border border-[var(--border)] px-1 py-0 text-[10px] outline-none"
               autoFocus
             />
           ) : (
             <button
               onClick={() => setEditingSL(true)}
-              className="text-slate-600 hover:text-slate-900"
+              className="text-[var(--text-secondary)] hover:text-slate-900"
             >
               {draft.stopLoss ? `${draft.stopLoss}%` : "—"}
             </button>
@@ -94,13 +94,13 @@ export function StrategySummary() {
                 setEditingTP(false);
               }}
               onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-              className="w-10 rounded border border-slate-200 px-1 py-0 text-[10px] outline-none"
+              className="w-10 rounded border border-[var(--border)] px-1 py-0 text-[10px] outline-none"
               autoFocus
             />
           ) : (
             <button
               onClick={() => setEditingTP(true)}
-              className="text-slate-600 hover:text-slate-900"
+              className="text-[var(--text-secondary)] hover:text-slate-900"
             >
               {draft.takeProfit ? `${draft.takeProfit}%` : "—"}
             </button>

@@ -32,29 +32,29 @@
   --scrollbar-hover: #9ca3af;
 }
 
-/* ─── Dark Mode (TradingView style) ─── */
+/* ─── Dark Mode (TradingView style — true black) ─── */
 html.dark {
-  --bg: #131722;
-  --fg: #d1d4dc;
-  --surface: #1e222d;
-  --surface-2: #262b3e;
-  --border: #2a2e39;
-  --border-subtle: #232632;
-  --text-primary: #d1d4dc;
-  --text-secondary: #787b86;
-  --text-tertiary: #5d606b;
+  --bg: #0c0d13;
+  --fg: #e0e3eb;
+  --surface: #131722;
+  --surface-2: #1c2030;
+  --border: #1e222d;
+  --border-subtle: #171b26;
+  --text-primary: #e0e3eb;
+  --text-secondary: #b2b5be;
+  --text-tertiary: #787b86;
   --text-muted: #434651;
   --accent: #2962ff;
   --accent-hover: #1e53e5;
   --success: #26a69a;
   --danger: #ef5350;
   --warning: #ff9800;
-  --chat-user-bg: #262b3e;
-  --chat-agent-bg: #1e222d;
-  --chat-agent-border: #2a2e39;
-  --scrollbar-track: #1e222d;
-  --scrollbar-thumb: #363a45;
-  --scrollbar-hover: #4c525e;
+  --chat-user-bg: #1c2030;
+  --chat-agent-bg: #131722;
+  --chat-agent-border: #1e222d;
+  --scrollbar-track: #131722;
+  --scrollbar-thumb: #2a2e39;
+  --scrollbar-hover: #3c4050;
 }
 
 body {

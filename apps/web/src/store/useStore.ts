@@ -12,7 +12,7 @@ import type {
 import type { Drawing, DrawingType } from '@/lib/chart-primitives/drawingTypes';
 import { resampleToTimeframe } from '@/lib/csv/resampleOHLC';
 
-export type Mode = 'pattern' | 'strategy' | 'backtest';
+export type Mode = 'pattern' | 'strategy';
 
 interface AnalysisResults {
   summary?: string;
@@ -73,6 +73,10 @@ interface AppState {
   setPatternSelectorActive: (active: boolean) => void;
   capturedPattern: CapturedPatternData | null;
   setCapturedPattern: (data: CapturedPatternData | null) => void;
+
+  // Pine drawings
+  pineDrawings: any | null;
+  setPineDrawings: (drawings: any | null) => void;
 
   // Theme
   darkMode: boolean;
@@ -223,6 +227,10 @@ export const useStore = create<AppState>((set) => ({
   setPatternSelectorActive: (active) => set({ patternSelectorActive: active }),
   capturedPattern: null,
   setCapturedPattern: (data) => set({ capturedPattern: data }),
+
+  // Pine drawings
+  pineDrawings: null,
+  setPineDrawings: (drawings) => set({ pineDrawings: drawings }),
 
   // Theme
   darkMode: true,

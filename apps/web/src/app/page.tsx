@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { TopBar } from "@/components/TopBar";
 import { RightSidebar } from "@/components/RightSidebar";
 import { BottomPanel } from "@/components/BottomPanel";
@@ -13,6 +13,28 @@ export default function Home() {
   const chartData = useStore((s) => s.chartData);
   const patternMatches = useStore((s) => s.patternMatches);
   const rootRef = useRef<HTMLDivElement>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(320);
+  const sidebarDrag = useRef({ active: false, startX: 0, startW: 0 });
+
+  const onSidebarResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    sidebarDrag.current = { active: true, startX: e.clientX, startW: sidebarWidth };
+
+    const onMove = (ev: MouseEvent) => {
+      if (!sidebarDrag.current.active) return;
+      const dx = sidebarDrag.current.startX - ev.clientX;
+      const newW = Math.max(240, Math.min(600, sidebarDrag.current.startW + dx));
+      setSidebarWidth(newW);
+      window.dispatchEvent(new Event("resize"));
+    };
+    const onUp = () => {
+      sidebarDrag.current.active = false;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [sidebarWidth]);
 
   // Prevent browser from scrolling the overflow-hidden container
   useEffect(() => {
@@ -47,8 +69,16 @@ export default function Home() {
         <BottomPanel />
       </div>
 
-      {/* Right Sidebar */}
-      <RightSidebar />
+      {/* Right Sidebar with resize handle */}
+      <div className="flex shrink-0" style={{ width: sidebarWidth }}>
+        <div
+          onMouseDown={onSidebarResizeStart}
+          className="w-1 cursor-ew-resize hover:bg-[var(--accent)] transition-colors shrink-0"
+        />
+        <div className="flex-1 min-w-0">
+          <RightSidebar />
+        </div>
+      </div>
     </div>
   );
 }

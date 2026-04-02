@@ -1,16 +1,8 @@
 "use client";
 
-import { useStore, type Mode } from "@/store/useStore";
-
-const modes: { key: Mode; label: string }[] = [
-  { key: "pattern", label: "Pattern" },
-  { key: "strategy", label: "Strategy" },
-  { key: "backtest", label: "Backtest" },
-];
+import { useStore } from "@/store/useStore";
 
 export function TopBar() {
-  const activeMode = useStore((s) => s.activeMode);
-  const setMode = useStore((s) => s.setMode);
   const darkMode = useStore((s) => s.darkMode);
   const toggleDarkMode = useStore((s) => s.toggleDarkMode);
 
@@ -19,25 +11,6 @@ export function TopBar() {
       <h1 className="text-sm font-bold tracking-tight whitespace-nowrap" style={{ color: "var(--text-primary)" }}>
         Trading Pattern AI
       </h1>
-      <div className="flex rounded-lg p-0.5" style={{ border: "1px solid var(--border)" }}>
-        {modes.map((mode) => (
-          <button
-            key={mode.key}
-            onClick={() => setMode(mode.key)}
-            className={`rounded-md px-4 py-1.5 text-[13px] font-medium transition-colors ${
-              activeMode === mode.key
-                ? "text-white"
-                : "hover:opacity-80"
-            }`}
-            style={{
-              background: activeMode === mode.key ? "var(--accent)" : "transparent",
-              color: activeMode === mode.key ? "#fff" : "var(--text-secondary)",
-            }}
-          >
-            {mode.label}
-          </button>
-        ))}
-      </div>
 
       <div className="flex-1" />
 

@@ -1,17 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useStore, type Mode } from "@/store/useStore";
+import { PineScriptPanel } from "./PineScriptPanel";
 
 const PANEL_TABS: Record<Mode, string[]> = {
-  pattern: ["Pattern Analysis"],
-  strategy: ["Strategy Report"],
-  backtest: ["Trade History", "Report"],
+  pattern: ["Pattern Analysis", "Pine Script"],
+  strategy: ["Strategy Report", "Trade History", "Pine Script"],
 };
 
 export function BottomPanel() {
   const [collapsed, setCollapsed] = useState(false);
+  const [height, setHeight] = useState(256);
   const [activeTab, setActiveTab] = useState(0);
+  const isDragging = useRef(false);
+  const dragStartY = useRef(0);
+  const dragStartH = useRef(0);
   const activeMode = useStore((s) => s.activeMode);
   const backtestResults = useStore((s) => s.backtestResults);
   const patternMatches = useStore((s) => s.patternMatches);
@@ -19,13 +23,41 @@ export function BottomPanel() {
 
   const tabs = PANEL_TABS[activeMode];
 
+  const onResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+    dragStartY.current = e.clientY;
+    dragStartH.current = height;
+
+    const onMove = (ev: MouseEvent) => {
+      if (!isDragging.current) return;
+      const dy = dragStartY.current - ev.clientY;
+      const newH = Math.max(100, Math.min(600, dragStartH.current + dy));
+      setHeight(newH);
+      window.dispatchEvent(new Event("resize"));
+    };
+    const onUp = () => {
+      isDragging.current = false;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [height]);
+
   return (
     <div
-      className={`flex flex-col shrink-0 ${
-        collapsed ? "h-8" : "h-64"
-      }`}
-      style={{ borderTop: "1px solid var(--border)", background: "var(--surface)" }}
+      className="flex flex-col shrink-0"
+      style={{ height: collapsed ? 32 : height, borderTop: "1px solid var(--border)", background: "var(--surface)" }}
     >
+      {/* Resize handle */}
+      {!collapsed && (
+        <div
+          onMouseDown={onResizeStart}
+          className="h-1 cursor-ns-resize hover:bg-[var(--accent)] transition-colors shrink-0"
+          style={{ marginTop: -2 }}
+        />
+      )}
       {/* Tab bar + collapse toggle */}
       <div className="flex h-8 shrink-0 items-center px-1" style={{ borderBottom: "1px solid var(--border-subtle)", background: "var(--surface-2)" }}>
         {tabs.map((tab, i) => (
@@ -40,8 +72,8 @@ export function BottomPanel() {
             }}
             className={`px-3 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
               activeTab === i && !collapsed
-                ? "text-slate-900"
-                : "text-slate-400 hover:text-slate-600"
+                ? "text-[var(--text-primary)]"
+                : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
             }`}
           >
             {tab}
@@ -57,7 +89,7 @@ export function BottomPanel() {
             // Trigger resize so the chart recalculates its dimensions
             requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
           }}
-          className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:text-slate-600"
+          className="flex h-6 w-6 items-center justify-center rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
         >
           <svg
             className={`h-3.5 w-3.5 transition-transform ${collapsed ? "rotate-180" : ""}`}
@@ -74,9 +106,15 @@ export function BottomPanel() {
       {/* Content */}
       {!collapsed && (
         <div className="flex-1 overflow-auto">
-          {activeMode === "backtest" && <BacktestContent tab={activeTab} results={backtestResults} expandedTrade={expandedTrade} setExpandedTrade={setExpandedTrade} />}
-          {activeMode === "pattern" && <PatternContent matches={patternMatches} />}
-          {activeMode === "strategy" && <StrategyContent />}
+          {tabs[activeTab] === "Pine Script" ? (
+            <PineScriptPanel />
+          ) : (
+            <>
+              {activeMode === "strategy" && activeTab === 1 && <BacktestContent tab={0} results={backtestResults} expandedTrade={expandedTrade} setExpandedTrade={setExpandedTrade} />}
+              {activeMode === "pattern" && activeTab === 0 && <PatternContent matches={patternMatches} />}
+              {activeMode === "strategy" && activeTab === 0 && <StrategyContent />}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -98,7 +136,7 @@ function BacktestContent({
 }) {
   if (!results) {
     return (
-      <div className="flex h-full items-center justify-center text-xs text-slate-400">
+      <div className="flex h-full items-center justify-center text-xs text-[var(--text-tertiary)]">
         Run a backtest to see results
       </div>
     );
@@ -132,15 +170,15 @@ function BacktestContent({
       <div className="p-3">
         <div className="grid grid-cols-4 gap-2">
           {metrics.map((m) => (
-            <div key={m.label} className="rounded border border-slate-100 p-2">
-              <div className="text-[10px] text-slate-400 uppercase">{m.label}</div>
+            <div key={m.label} className="rounded border border-[var(--border-subtle)] p-2">
+              <div className="text-[10px] text-[var(--text-tertiary)] uppercase">{m.label}</div>
               <div
                 className={`text-sm font-semibold ${
                   "positive" in m && m.positive
                     ? "text-emerald-600"
                     : "negative" in m && m.negative
                       ? "text-red-500"
-                      : "text-slate-800"
+                      : "text-[var(--text-primary)]"
                 }`}
               >
                 {m.value}
@@ -157,7 +195,7 @@ function BacktestContent({
     <div className="p-3">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-slate-200 text-left text-[10px] uppercase text-slate-400">
+          <tr className="border-b border-[var(--border)] text-left text-[10px] uppercase text-[var(--text-tertiary)]">
             <th className="py-1.5 pr-3 font-semibold">Entry Time</th>
             <th className="py-1.5 pr-3 font-semibold">Exit Time</th>
             <th className="py-1.5 pr-3 font-semibold">Side</th>
@@ -176,10 +214,10 @@ function BacktestContent({
                 onClick={() =>
                   setExpandedTrade(expandedTrade === trade.id ? null : trade.id)
                 }
-                className="cursor-pointer border-b border-slate-50 hover:bg-slate-50/50"
+                className="cursor-pointer border-b border-[var(--border-subtle)] hover:bg-[var(--surface-2)]"
               >
-                <td className="py-1.5 pr-3 text-slate-500">{trade.entryTime}</td>
-                <td className="py-1.5 pr-3 text-slate-500">{trade.exitTime}</td>
+                <td className="py-1.5 pr-3 text-[var(--text-secondary)]">{trade.entryTime}</td>
+                <td className="py-1.5 pr-3 text-[var(--text-secondary)]">{trade.exitTime}</td>
                 <td className="py-1.5 pr-3">
                   <span
                     className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${
@@ -191,13 +229,13 @@ function BacktestContent({
                     {trade.direction.toUpperCase()}
                   </span>
                 </td>
-                <td className="py-1.5 pr-3 text-slate-700 font-medium">
+                <td className="py-1.5 pr-3 text-[var(--text-primary)] font-medium">
                   {trade.entryPrice.toFixed(2)}
                 </td>
-                <td className="py-1.5 pr-3 text-slate-700 font-medium">
+                <td className="py-1.5 pr-3 text-[var(--text-primary)] font-medium">
                   {trade.exitPrice.toFixed(2)}
                 </td>
-                <td className="py-1.5 pr-3 text-slate-500">
+                <td className="py-1.5 pr-3 text-[var(--text-secondary)]">
                   {trade.quantity}
                 </td>
                 <td
@@ -219,8 +257,8 @@ function BacktestContent({
               </tr>
               {expandedTrade === trade.id && trade.reason && (
                 <tr key={`${trade.id}-detail`}>
-                  <td colSpan={8} className="bg-slate-50/50 px-3 py-2 text-slate-500">
-                    <span className="text-slate-400">Reason:</span> {trade.reason}
+                  <td colSpan={8} className="bg-[var(--surface-2)] px-3 py-2 text-[var(--text-secondary)]">
+                    <span className="text-[var(--text-tertiary)]">Reason:</span> {trade.reason}
                   </td>
                 </tr>
               )}
@@ -229,7 +267,7 @@ function BacktestContent({
         </tbody>
       </table>
       {results.trades.length === 0 && (
-        <div className="py-6 text-center text-xs text-slate-400">No trades recorded</div>
+        <div className="py-6 text-center text-xs text-[var(--text-tertiary)]">No trades recorded</div>
       )}
     </div>
   );
@@ -243,7 +281,7 @@ function PatternContent({ matches }: { matches: ReturnType<typeof useStore.getSt
 
   if (matches.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-xs text-slate-400">
+      <div className="flex h-full items-center justify-center text-xs text-[var(--text-tertiary)]">
         Run pattern detection to see analysis
       </div>
     );
@@ -267,28 +305,28 @@ function PatternContent({ matches }: { matches: ReturnType<typeof useStore.getSt
     <div className="p-3">
       {/* Summary */}
       <div className="grid grid-cols-4 gap-2 mb-3">
-        <div className="rounded border border-slate-100 p-2">
-          <div className="text-[10px] text-slate-400 uppercase">Total</div>
-          <div className="text-sm font-semibold text-slate-800">{matches.length}</div>
+        <div className="rounded border border-[var(--border-subtle)] p-2">
+          <div className="text-[10px] text-[var(--text-tertiary)] uppercase">Total</div>
+          <div className="text-sm font-semibold text-[var(--text-primary)]">{matches.length}</div>
         </div>
-        <div className="rounded border border-slate-100 p-2">
-          <div className="text-[10px] text-slate-400 uppercase">Bullish</div>
+        <div className="rounded border border-[var(--border-subtle)] p-2">
+          <div className="text-[10px] text-[var(--text-tertiary)] uppercase">Bullish</div>
           <div className="text-sm font-semibold text-emerald-600">{bullish}</div>
         </div>
-        <div className="rounded border border-slate-100 p-2">
-          <div className="text-[10px] text-slate-400 uppercase">Bearish</div>
+        <div className="rounded border border-[var(--border-subtle)] p-2">
+          <div className="text-[10px] text-[var(--text-tertiary)] uppercase">Bearish</div>
           <div className="text-sm font-semibold text-red-500">{bearish}</div>
         </div>
-        <div className="rounded border border-slate-100 p-2">
-          <div className="text-[10px] text-slate-400 uppercase">Avg Confidence</div>
-          <div className="text-sm font-semibold text-slate-800">{(avgConfidence * 100).toFixed(1)}%</div>
+        <div className="rounded border border-[var(--border-subtle)] p-2">
+          <div className="text-[10px] text-[var(--text-tertiary)] uppercase">Avg Confidence</div>
+          <div className="text-sm font-semibold text-[var(--text-primary)]">{(avgConfidence * 100).toFixed(1)}%</div>
         </div>
       </div>
 
       {/* Match list */}
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-slate-200 text-left text-[10px] uppercase text-slate-400">
+          <tr className="border-b border-[var(--border)] text-left text-[10px] uppercase text-[var(--text-tertiary)]">
             <th className="py-1.5 pr-3 font-semibold">Pattern</th>
             <th className="py-1.5 pr-3 font-semibold">Direction</th>
             <th className="py-1.5 pr-3 font-semibold">Start</th>
@@ -301,9 +339,9 @@ function PatternContent({ matches }: { matches: ReturnType<typeof useStore.getSt
             <tr
               key={m.id}
               onClick={() => handleRowClick(m)}
-              className="border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer transition-colors"
+              className="border-b border-[var(--border-subtle)] hover:bg-blue-50/50 cursor-pointer transition-colors"
             >
-              <td className="py-1.5 pr-3 font-medium text-slate-700">{m.name}</td>
+              <td className="py-1.5 pr-3 font-medium text-[var(--text-primary)]">{m.name}</td>
               <td className="py-1.5 pr-3">
                 <span
                   className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${
@@ -311,15 +349,15 @@ function PatternContent({ matches }: { matches: ReturnType<typeof useStore.getSt
                       ? "bg-emerald-50 text-emerald-600"
                       : m.direction === "bearish"
                         ? "bg-red-50 text-red-500"
-                        : "bg-slate-100 text-slate-500"
+                        : "bg-slate-100 text-[var(--text-secondary)]"
                   }`}
                 >
                   {m.direction.toUpperCase()}
                 </span>
               </td>
-              <td className="py-1.5 pr-3 text-slate-500">{m.startTime}</td>
-              <td className="py-1.5 pr-3 text-slate-500">{m.endTime}</td>
-              <td className="py-1.5 text-right text-slate-700">{(m.confidence * 100).toFixed(0)}%</td>
+              <td className="py-1.5 pr-3 text-[var(--text-secondary)]">{m.startTime}</td>
+              <td className="py-1.5 pr-3 text-[var(--text-secondary)]">{m.endTime}</td>
+              <td className="py-1.5 text-right text-[var(--text-primary)]">{(m.confidence * 100).toFixed(0)}%</td>
             </tr>
           ))}
         </tbody>
@@ -335,7 +373,7 @@ function StrategyContent() {
 
   if (!analysisResults) {
     return (
-      <div className="flex h-full items-center justify-center text-xs text-slate-400">
+      <div className="flex h-full items-center justify-center text-xs text-[var(--text-tertiary)]">
         Run strategy analysis to see report
       </div>
     );
@@ -344,15 +382,15 @@ function StrategyContent() {
   return (
     <div className="p-3">
       {analysisResults.summary && (
-        <p className="text-xs text-slate-600 mb-3">{analysisResults.summary}</p>
+        <p className="text-xs text-[var(--text-secondary)] mb-3">{analysisResults.summary}</p>
       )}
 
       {analysisResults.metrics && (
         <div className="grid grid-cols-4 gap-2 mb-3">
           {Object.entries(analysisResults.metrics).map(([key, val]) => (
-            <div key={key} className="rounded border border-slate-100 p-2">
-              <div className="text-[10px] text-slate-400 uppercase">{key.replace(/_/g, " ")}</div>
-              <div className="text-sm font-semibold text-slate-800">{val}</div>
+            <div key={key} className="rounded border border-[var(--border-subtle)] p-2">
+              <div className="text-[10px] text-[var(--text-tertiary)] uppercase">{key.replace(/_/g, " ")}</div>
+              <div className="text-sm font-semibold text-[var(--text-primary)]">{val}</div>
             </div>
           ))}
         </div>
@@ -361,7 +399,7 @@ function StrategyContent() {
       {analysisResults.signals && analysisResults.signals.length > 0 && (
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b border-slate-200 text-left text-[10px] uppercase text-slate-400">
+            <tr className="border-b border-[var(--border)] text-left text-[10px] uppercase text-[var(--text-tertiary)]">
               <th className="py-1.5 pr-3 font-semibold">Time</th>
               <th className="py-1.5 pr-3 font-semibold">Signal</th>
               <th className="py-1.5 text-right font-semibold">Price</th>
@@ -369,8 +407,8 @@ function StrategyContent() {
           </thead>
           <tbody>
             {analysisResults.signals.map((s, i) => (
-              <tr key={i} className="border-b border-slate-50 hover:bg-slate-50/50">
-                <td className="py-1.5 pr-3 text-slate-500">{s.time}</td>
+              <tr key={i} className="border-b border-[var(--border-subtle)] hover:bg-[var(--surface-2)]">
+                <td className="py-1.5 pr-3 text-[var(--text-secondary)]">{s.time}</td>
                 <td className="py-1.5 pr-3">
                   <span
                     className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${
@@ -382,7 +420,7 @@ function StrategyContent() {
                     {s.type.toUpperCase()}
                   </span>
                 </td>
-                <td className="py-1.5 text-right text-slate-700 font-medium">{s.price.toFixed(2)}</td>
+                <td className="py-1.5 text-right text-[var(--text-primary)] font-medium">{s.price.toFixed(2)}</td>
               </tr>
             ))}
           </tbody>

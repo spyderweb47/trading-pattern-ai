@@ -14,6 +14,16 @@ import type { Drawing, DrawingType, AnchorPoint, DrawingPhase } from "./drawingT
 const ANCHOR_RADIUS = 4;
 const HIT_TOLERANCE = 8;
 const TRENDLINE_COLOR = "#6366f1";
+const HLINE_COLOR = "#f59e0b";
+const VLINE_COLOR = "#8b5cf6";
+const RECT_COLOR = "rgba(99,102,241,0.15)";
+const RECT_BORDER = "rgba(99,102,241,0.6)";
+const FIB_COLOR = "#f59e0b";
+const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+const FIB_LEVEL_COLORS: Record<number, string> = {
+  0: "#787b86", 0.236: "#f44336", 0.382: "#ff9800", 0.5: "#4caf50",
+  0.618: "#00bcd4", 0.786: "#2962ff", 1: "#787b86",
+};
 const LONG_TP_COLOR = "rgba(34,197,94,0.15)";
 const LONG_SL_COLOR = "rgba(239,68,68,0.15)";
 const LONG_ENTRY_COLOR = "#3b82f6";
@@ -27,14 +37,30 @@ interface PixelDrawing {
   px: number[];
   py: number[];
   selected: boolean;
-  entryY?: number;
-  tpY?: number;
-  slY?: number;
-  x1?: number;
-  x2?: number;
+  entryY?: number | null;
+  tpY?: number | null;
+  slY?: number | null;
+  x1?: number | null;
+  x2?: number | null;
   entry?: number;
   tp?: number;
   sl?: number;
+  /** For horizontal line: the price and full chart width */
+  hLineY?: number;
+  hLinePrice?: number;
+  chartWidth?: number;
+  /** For vertical line: the x coord and full chart height */
+  vLineX?: number;
+  chartHeight?: number;
+  /** For rectangle */
+  rectX1?: number;
+  rectY1?: number;
+  rectX2?: number;
+  rectY2?: number;
+  /** For fibonacci */
+  fibLevels?: { level: number; y: number; price: number }[];
+  fibX1?: number;
+  fibX2?: number;
 }
 
 class DrawingRenderer implements IPrimitivePaneRenderer {
@@ -50,6 +76,10 @@ class DrawingRenderer implements IPrimitivePaneRenderer {
     target.useMediaCoordinateSpace(({ context: ctx }) => {
       for (const d of this._pixels) {
         if (d.type === "trendline") this._drawTrendline(ctx, d);
+        else if (d.type === "horizontal_line") this._drawHorizontalLine(ctx, d);
+        else if (d.type === "vertical_line") this._drawVerticalLine(ctx, d);
+        else if (d.type === "rectangle") this._drawRectangle(ctx, d);
+        else if (d.type === "fibonacci") this._drawFibonacci(ctx, d);
         else this._drawPosition(ctx, d);
       }
       if (this._preview) this._drawPreview(ctx, this._preview);
@@ -72,6 +102,144 @@ class DrawingRenderer implements IPrimitivePaneRenderer {
       ctx.arc(d.px[i], d.py[i], d.selected ? 5 : ANCHOR_RADIUS, 0, Math.PI * 2);
       ctx.fill();
       if (d.selected) {
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  private _drawHorizontalLine(ctx: CanvasRenderingContext2D, d: PixelDrawing) {
+    if (d.hLineY == null || d.chartWidth == null) return;
+    ctx.strokeStyle = d.selected ? "#d97706" : HLINE_COLOR;
+    ctx.lineWidth = d.selected ? 2 : 1.5;
+    ctx.setLineDash([6, 3]);
+    ctx.beginPath();
+    ctx.moveTo(0, d.hLineY);
+    ctx.lineTo(d.chartWidth, d.hLineY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Price label
+    if (d.hLinePrice != null) {
+      const label = `$${d.hLinePrice.toFixed(2)}`;
+      ctx.font = "bold 10px 'Chakra Petch', sans-serif";
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = d.selected ? "#d97706" : HLINE_COLOR;
+      ctx.fillRect(d.chartWidth - tw - 12, d.hLineY - 9, tw + 8, 18);
+      ctx.fillStyle = "#fff";
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "left";
+      ctx.fillText(label, d.chartWidth - tw - 8, d.hLineY);
+    }
+
+    // Selection anchor
+    if (d.selected) {
+      ctx.fillStyle = HLINE_COLOR;
+      ctx.beginPath();
+      ctx.arc(40, d.hLineY, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+
+  private _drawVerticalLine(ctx: CanvasRenderingContext2D, d: PixelDrawing) {
+    if (d.vLineX == null || d.chartHeight == null) return;
+    ctx.strokeStyle = d.selected ? "#7c3aed" : VLINE_COLOR;
+    ctx.lineWidth = d.selected ? 2 : 1.5;
+    ctx.setLineDash([6, 3]);
+    ctx.beginPath();
+    ctx.moveTo(d.vLineX, 0);
+    ctx.lineTo(d.vLineX, d.chartHeight);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (d.selected) {
+      ctx.fillStyle = VLINE_COLOR;
+      ctx.beginPath();
+      ctx.arc(d.vLineX, 20, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+
+  private _drawRectangle(ctx: CanvasRenderingContext2D, d: PixelDrawing) {
+    if (d.rectX1 == null || d.rectY1 == null || d.rectX2 == null || d.rectY2 == null) return;
+    const x = Math.min(d.rectX1, d.rectX2);
+    const y = Math.min(d.rectY1, d.rectY2);
+    const w = Math.abs(d.rectX2 - d.rectX1);
+    const h = Math.abs(d.rectY2 - d.rectY1);
+
+    ctx.fillStyle = d.selected ? "rgba(99,102,241,0.2)" : RECT_COLOR;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = d.selected ? "#4f46e5" : RECT_BORDER;
+    ctx.lineWidth = d.selected ? 2 : 1;
+    ctx.setLineDash([]);
+    ctx.strokeRect(x, y, w, h);
+
+    // Corner anchors when selected
+    if (d.selected) {
+      const corners = [[d.rectX1, d.rectY1], [d.rectX2, d.rectY1], [d.rectX1, d.rectY2], [d.rectX2, d.rectY2]];
+      for (const [cx, cy] of corners) {
+        ctx.fillStyle = RECT_BORDER;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  private _drawFibonacci(ctx: CanvasRenderingContext2D, d: PixelDrawing) {
+    if (!d.fibLevels || d.fibLevels.length === 0 || d.fibX1 == null || d.fibX2 == null) return;
+    const x1 = Math.min(d.fibX1, d.fibX2);
+    const x2 = Math.max(d.fibX1, d.fibX2);
+    const w = Math.max(x2 - x1, 100);
+
+    for (const fl of d.fibLevels) {
+      const color = FIB_LEVEL_COLORS[fl.level] || FIB_COLOR;
+      // Fill band between this level and the next
+      ctx.strokeStyle = d.selected && fl.level === 0.618 ? "#fff" : color;
+      ctx.lineWidth = fl.level === 0.5 || fl.level === 0.618 ? 1.5 : 1;
+      ctx.setLineDash(fl.level === 0 || fl.level === 1 ? [] : [4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x1, fl.y);
+      ctx.lineTo(x1 + w, fl.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Label
+      ctx.font = "10px 'Chakra Petch', sans-serif";
+      ctx.fillStyle = color;
+      ctx.textBaseline = "bottom";
+      ctx.textAlign = "left";
+      ctx.fillText(`${(fl.level * 100).toFixed(1)}%  $${fl.price.toFixed(2)}`, x1 + 4, fl.y - 2);
+    }
+
+    // Fill zones between levels
+    for (let i = 0; i < d.fibLevels.length - 1; i++) {
+      const top = Math.min(d.fibLevels[i].y, d.fibLevels[i + 1].y);
+      const bot = Math.max(d.fibLevels[i].y, d.fibLevels[i + 1].y);
+      const level = d.fibLevels[i].level;
+      const alpha = level >= 0.382 && level <= 0.618 ? 0.06 : 0.03;
+      const color = FIB_LEVEL_COLORS[level] || FIB_COLOR;
+      ctx.fillStyle = color.replace(")", `,${alpha})`).replace("rgb", "rgba");
+      ctx.fillRect(x1, top, w, bot - top);
+    }
+
+    // Anchor points when selected
+    if (d.selected && d.px.length >= 2) {
+      for (let i = 0; i < 2; i++) {
+        ctx.fillStyle = FIB_COLOR;
+        ctx.beginPath();
+        ctx.arc(d.px[i], d.py[i], 5, 0, Math.PI * 2);
+        ctx.fill();
         ctx.strokeStyle = "#fff";
         ctx.lineWidth = 1.5;
         ctx.stroke();
@@ -172,13 +340,43 @@ class DrawingRenderer implements IPrimitivePaneRenderer {
   }
 
   private _drawPreview(ctx: CanvasRenderingContext2D, p: NonNullable<typeof this._preview>) {
-    ctx.strokeStyle = p.type === "trendline" ? TRENDLINE_COLOR : LONG_ENTRY_COLOR;
     ctx.lineWidth = 1.5;
     ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(p.x1, p.y1);
-    ctx.lineTo(p.x2, p.y2);
-    ctx.stroke();
+
+    if (p.type === "horizontal_line") {
+      ctx.strokeStyle = HLINE_COLOR;
+      ctx.beginPath();
+      ctx.moveTo(0, p.y1);
+      ctx.lineTo(ctx.canvas.width, p.y1);
+      ctx.stroke();
+    } else if (p.type === "vertical_line") {
+      ctx.strokeStyle = VLINE_COLOR;
+      ctx.beginPath();
+      ctx.moveTo(p.x1, 0);
+      ctx.lineTo(p.x1, ctx.canvas.height);
+      ctx.stroke();
+    } else if (p.type === "rectangle") {
+      ctx.strokeStyle = RECT_BORDER;
+      ctx.fillStyle = RECT_COLOR;
+      const x = Math.min(p.x1, p.x2);
+      const y = Math.min(p.y1, p.y2);
+      const w = Math.abs(p.x2 - p.x1);
+      const h = Math.abs(p.y2 - p.y1);
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x, y, w, h);
+    } else if (p.type === "fibonacci") {
+      ctx.strokeStyle = FIB_COLOR;
+      ctx.beginPath();
+      ctx.moveTo(p.x1, p.y1);
+      ctx.lineTo(p.x2, p.y2);
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = p.type === "trendline" ? TRENDLINE_COLOR : LONG_ENTRY_COLOR;
+      ctx.beginPath();
+      ctx.moveTo(p.x1, p.y1);
+      ctx.lineTo(p.x2, p.y2);
+      ctx.stroke();
+    }
     ctx.setLineDash([]);
   }
 }
@@ -295,11 +493,11 @@ export class DrawingToolsPrimitive implements ISeriesPrimitive<Time> {
     this._pixelCache = this._drawings.map(d => this._drawingToPixels(d)).filter(Boolean) as PixelDrawing[];
 
     let preview: Parameters<DrawingPaneView["update"]>[1] = null;
-    if (this._phase === "placing_second" && this._anchor1 && this._activeTool === "trendline") {
+    if (this._phase === "placing_second" && this._anchor1 && (this._activeTool === "trendline" || this._activeTool === "rectangle" || this._activeTool === "fibonacci")) {
       const x1 = this._timeToX(this._anchor1.time);
       const y1 = this._priceToY(this._anchor1.price);
       if (x1 != null && y1 != null) {
-        preview = { x1, y1, x2: this._previewX, y2: this._previewY, type: "trendline" };
+        preview = { x1, y1, x2: this._previewX, y2: this._previewY, type: this._activeTool };
       }
     }
 
@@ -317,6 +515,48 @@ export class DrawingToolsPrimitive implements ISeriesPrimitive<Time> {
       const py = d.points.map(p => this._priceToY(p.price));
       if (px.some(v => v == null) || py.some(v => v == null)) return null;
       return { id: d.id, type: d.type, px: px as number[], py: py as number[], selected: d.selected };
+    }
+
+    if (d.type === "horizontal_line") {
+      if (d.points.length < 1) return null;
+      const y = this._priceToY(d.points[0].price);
+      if (y == null) return null;
+      const chartWidth = this._chart?.timeScale().width() ?? 800;
+      return { id: d.id, type: d.type, px: [], py: [], selected: d.selected, hLineY: y, hLinePrice: d.points[0].price, chartWidth };
+    }
+
+    if (d.type === "vertical_line") {
+      if (d.points.length < 1) return null;
+      const x = this._timeToX(d.points[0].time);
+      if (x == null) return null;
+      // Chart height from the series coordinate space
+      const chartHeight = 2000; // large enough
+      return { id: d.id, type: d.type, px: [], py: [], selected: d.selected, vLineX: x, chartHeight };
+    }
+
+    if (d.type === "rectangle") {
+      if (d.points.length < 2) return null;
+      const x1 = this._timeToX(d.points[0].time);
+      const y1 = this._priceToY(d.points[0].price);
+      const x2 = this._timeToX(d.points[1].time);
+      const y2 = this._priceToY(d.points[1].price);
+      if (x1 == null || y1 == null || x2 == null || y2 == null) return null;
+      return { id: d.id, type: d.type, px: [x1, x2], py: [y1, y2], selected: d.selected, rectX1: x1, rectY1: y1, rectX2: x2, rectY2: y2 };
+    }
+
+    if (d.type === "fibonacci") {
+      if (d.points.length < 2) return null;
+      const x1 = this._timeToX(d.points[0].time);
+      const y1 = this._priceToY(d.points[0].price);
+      const x2 = this._timeToX(d.points[1].time);
+      const y2 = this._priceToY(d.points[1].price);
+      if (x1 == null || y1 == null || x2 == null || y2 == null) return null;
+      const levels = (d.fibLevels || FIB_LEVELS).map(level => {
+        const price = d.points[1].price + (d.points[0].price - d.points[1].price) * level;
+        const ly = this._priceToY(price) ?? 0;
+        return { level, y: ly, price };
+      });
+      return { id: d.id, type: d.type, px: [x1, x2], py: [y1, y2], selected: d.selected, fibLevels: levels, fibX1: x1, fibX2: x2 };
     }
 
     // Position tools
@@ -347,6 +587,47 @@ export class DrawingToolsPrimitive implements ISeriesPrimitive<Time> {
         }
         if (pd.px.length >= 2 && this._distToLine(x, y, pd.px[0], pd.py[0], pd.px[1], pd.py[1]) < HIT_TOLERANCE) {
           return { cursorStyle: "move", externalId: `${pd.id}:body`, zOrder: "top" };
+        }
+      } else if (pd.type === "horizontal_line") {
+        if (pd.hLineY != null && Math.abs(y - pd.hLineY) < HIT_TOLERANCE) {
+          return { cursorStyle: "ns-resize", externalId: `${pd.id}:body`, zOrder: "top" };
+        }
+      } else if (pd.type === "vertical_line") {
+        if (pd.vLineX != null && Math.abs(x - pd.vLineX) < HIT_TOLERANCE) {
+          return { cursorStyle: "ew-resize", externalId: `${pd.id}:body`, zOrder: "top" };
+        }
+      } else if (pd.type === "rectangle") {
+        if (pd.rectX1 != null && pd.rectY1 != null && pd.rectX2 != null && pd.rectY2 != null) {
+          // Corner anchors
+          const corners = [[pd.rectX1, pd.rectY1, 0], [pd.rectX2, pd.rectY1, 1], [pd.rectX1, pd.rectY2, 2], [pd.rectX2, pd.rectY2, 3]];
+          for (const [cx, cy, idx] of corners) {
+            if (Math.hypot(x - cx, y - cy) < HIT_TOLERANCE) {
+              return { cursorStyle: "nwse-resize", externalId: `${pd.id}:anchor:${idx}`, zOrder: "top" };
+            }
+          }
+          // Body
+          const lx = Math.min(pd.rectX1, pd.rectX2), rx = Math.max(pd.rectX1, pd.rectX2);
+          const ty = Math.min(pd.rectY1, pd.rectY2), by = Math.max(pd.rectY1, pd.rectY2);
+          if (x >= lx && x <= rx && y >= ty && y <= by) {
+            return { cursorStyle: "move", externalId: `${pd.id}:body`, zOrder: "top" };
+          }
+        }
+      } else if (pd.type === "fibonacci") {
+        // Anchor points
+        for (let i = 0; i < pd.px.length; i++) {
+          if (Math.hypot(x - pd.px[i], y - pd.py[i]) < HIT_TOLERANCE) {
+            return { cursorStyle: "grab", externalId: `${pd.id}:anchor:${i}`, zOrder: "top" };
+          }
+        }
+        // Level lines
+        if (pd.fibLevels && pd.fibX1 != null && pd.fibX2 != null) {
+          const lx = Math.min(pd.fibX1, pd.fibX2);
+          const rx = Math.max(pd.fibX1, pd.fibX2);
+          for (const fl of pd.fibLevels) {
+            if (Math.abs(y - fl.y) < HIT_TOLERANCE && x >= lx - 20 && x <= rx + 20) {
+              return { cursorStyle: "move", externalId: `${pd.id}:body`, zOrder: "top" };
+            }
+          }
         }
       } else {
         if (pd.entryY != null && pd.x1 != null && pd.x2 != null) {
@@ -388,8 +669,45 @@ export class DrawingToolsPrimitive implements ISeriesPrimitive<Time> {
 
   // --- Mouse Interaction ---
   onMouseDown(x: number, y: number): boolean {
-    // Placing first anchor (trendline)
-    if (this._phase === "placing_first" && this._activeTool === "trendline") {
+    // Single-click tools: horizontal line, vertical line
+    if (this._phase === "placing_first" && this._activeTool === "horizontal_line") {
+      const price = this._yToPrice(y);
+      const time = this._xToTime(x);
+      if (price != null && time) {
+        const drawing: Drawing = {
+          id: crypto.randomUUID(),
+          type: "horizontal_line",
+          points: [{ time, price }],
+          selected: false,
+        };
+        this._drawings.push(drawing);
+        this._notifyChange();
+        this.updateAllViews();
+        this._requestUpdate?.();
+      }
+      return true;
+    }
+
+    if (this._phase === "placing_first" && this._activeTool === "vertical_line") {
+      const time = this._xToTime(x);
+      const price = this._yToPrice(y);
+      if (time && price != null) {
+        const drawing: Drawing = {
+          id: crypto.randomUUID(),
+          type: "vertical_line",
+          points: [{ time, price }],
+          selected: false,
+        };
+        this._drawings.push(drawing);
+        this._notifyChange();
+        this.updateAllViews();
+        this._requestUpdate?.();
+      }
+      return true;
+    }
+
+    // Two-click tools: rectangle, fibonacci
+    if (this._phase === "placing_first" && (this._activeTool === "trendline" || this._activeTool === "rectangle" || this._activeTool === "fibonacci")) {
       const time = this._xToTime(x);
       const price = this._yToPrice(y);
       if (time && price != null) {
@@ -433,19 +751,19 @@ export class DrawingToolsPrimitive implements ISeriesPrimitive<Time> {
       return true;
     }
 
-    // Placing second anchor (trendline completion)
-    if (this._phase === "placing_second" && this._activeTool === "trendline" && this._anchor1) {
+    // Placing second anchor (trendline, rectangle, fibonacci completion)
+    if (this._phase === "placing_second" && (this._activeTool === "trendline" || this._activeTool === "rectangle" || this._activeTool === "fibonacci") && this._anchor1) {
       const time = this._xToTime(x);
       const price = this._yToPrice(y);
       if (time && price != null) {
         const drawing: Drawing = {
           id: crypto.randomUUID(),
-          type: "trendline",
+          type: this._activeTool,
           points: [this._anchor1, { time, price }],
           selected: false,
+          ...(this._activeTool === "fibonacci" ? { fibLevels: FIB_LEVELS } : {}),
         };
         this._drawings.push(drawing);
-        // Stay in placing_first so user can draw another trendline
         this._phase = "placing_first";
         this._anchor1 = null;
         this._notifyChange();
@@ -492,8 +810,8 @@ export class DrawingToolsPrimitive implements ISeriesPrimitive<Time> {
   }
 
   onMouseMove(x: number, y: number): boolean {
-    // Preview line for trendline
-    if (this._phase === "placing_second" && this._activeTool === "trendline") {
+    // Preview for two-click tools
+    if (this._phase === "placing_second" && (this._activeTool === "trendline" || this._activeTool === "rectangle" || this._activeTool === "fibonacci")) {
       this._previewX = x;
       this._previewY = y;
       this.updateAllViews();
@@ -539,12 +857,21 @@ export class DrawingToolsPrimitive implements ISeriesPrimitive<Time> {
       const dTime = curTime - this._dragStartTime;
       const dPrice = curPrice - this._dragStartPrice;
 
-      if (drawing.type === "trendline") {
+      if (drawing.type === "trendline" || drawing.type === "rectangle" || drawing.type === "fibonacci") {
         if (this._dragging.type === "anchor" && this._dragging.anchorIdx >= 0) {
           const time = this._xToTime(x);
           const price = this._yToPrice(y);
           if (time != null && price != null) {
-            drawing.points[this._dragging.anchorIdx] = { time, price };
+            // For rectangle corners, map anchor index to correct point
+            if (drawing.type === "rectangle" && drawing.points.length >= 2) {
+              const idx = this._dragging.anchorIdx;
+              if (idx === 0) { drawing.points[0] = { time, price }; }
+              else if (idx === 1) { drawing.points[1] = { ...drawing.points[1], time }; drawing.points[0] = { ...drawing.points[0], price }; }
+              else if (idx === 2) { drawing.points[0] = { ...drawing.points[0], time }; drawing.points[1] = { ...drawing.points[1], price }; }
+              else if (idx === 3) { drawing.points[1] = { time, price }; }
+            } else {
+              drawing.points[this._dragging.anchorIdx] = { time, price };
+            }
           }
         } else {
           // Body drag — shift all points by logical delta
@@ -552,6 +879,16 @@ export class DrawingToolsPrimitive implements ISeriesPrimitive<Time> {
             time: ((p.time as number) + dTime) as unknown as Time,
             price: p.price + dPrice,
           }));
+        }
+      } else if (drawing.type === "horizontal_line") {
+        const price = this._yToPrice(y);
+        if (price != null) {
+          drawing.points[0] = { ...drawing.points[0], price };
+        }
+      } else if (drawing.type === "vertical_line") {
+        const time = this._xToTime(x);
+        if (time != null) {
+          drawing.points[0] = { ...drawing.points[0], time };
         }
       } else {
         // Position tool drag

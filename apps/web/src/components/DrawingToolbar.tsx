@@ -3,7 +3,7 @@
 import { useStore } from "@/store/useStore";
 import type { DrawingType } from "@/lib/chart-primitives/drawingTypes";
 
-const tools: { key: DrawingType | "pointer" | "delete"; label: string; icon: React.ReactNode }[] = [
+const tools: { key: DrawingType | "pointer" | "delete"; label: string; icon: React.ReactNode; separator?: boolean }[] = [
   {
     key: "pointer",
     label: "Select",
@@ -26,6 +26,51 @@ const tools: { key: DrawingType | "pointer" | "delete"; label: string; icon: Rea
     ),
   },
   {
+    key: "horizontal_line",
+    label: "Horizontal Line",
+    icon: (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+        <line x1="2" y1="12" x2="22" y2="12" strokeLinecap="round" strokeDasharray="4 2" />
+        <circle cx="12" cy="12" r="1.5" fill="#f59e0b" stroke="#f59e0b" />
+      </svg>
+    ),
+  },
+  {
+    key: "vertical_line",
+    label: "Vertical Line",
+    icon: (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+        <line x1="12" y1="2" x2="12" y2="22" strokeLinecap="round" strokeDasharray="4 2" />
+        <circle cx="12" cy="12" r="1.5" fill="#8b5cf6" stroke="#8b5cf6" />
+      </svg>
+    ),
+    separator: true,
+  },
+  {
+    key: "rectangle",
+    label: "Rectangle",
+    icon: (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+        <rect x="4" y="6" width="16" height="12" rx="1" fill="rgba(99,102,241,0.15)" stroke="#6366f1" />
+      </svg>
+    ),
+  },
+  {
+    key: "fibonacci",
+    label: "Fibonacci Retracement",
+    icon: (
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" strokeWidth={1.5}>
+        <line x1="3" y1="4" x2="21" y2="4" stroke="#787b86" />
+        <line x1="3" y1="8" x2="21" y2="8" stroke="#f44336" strokeDasharray="3 2" />
+        <line x1="3" y1="11" x2="21" y2="11" stroke="#4caf50" strokeDasharray="3 2" />
+        <line x1="3" y1="14.5" x2="21" y2="14.5" stroke="#00bcd4" strokeDasharray="3 2" />
+        <line x1="3" y1="17" x2="21" y2="17" stroke="#2962ff" strokeDasharray="3 2" />
+        <line x1="3" y1="20" x2="21" y2="20" stroke="#787b86" />
+      </svg>
+    ),
+    separator: true,
+  },
+  {
     key: "long_position",
     label: "Long Position",
     icon: (
@@ -46,6 +91,7 @@ const tools: { key: DrawingType | "pointer" | "delete"; label: string; icon: Rea
         <line x1="4" y1="11.5" x2="20" y2="11.5" strokeDasharray="3 2" stroke="#3b82f6" />
       </svg>
     ),
+    separator: true,
   },
   {
     key: "pattern_select",
@@ -100,22 +146,26 @@ export function DrawingToolbar() {
             : activeDrawingTool === tool.key;
 
         return (
-          <button
-            key={tool.key}
-            onClick={() =>
-              setActiveDrawingTool(
-                tool.key === "pointer" ? null : (tool.key as DrawingType)
-              )
-            }
-            className="flex h-8 w-8 items-center justify-center rounded transition-colors"
-            style={{
-              background: isActive ? "var(--accent)" : "transparent",
-              color: isActive ? "#fff" : "var(--text-tertiary)",
-            }}
-            title={tool.label}
-          >
-            {tool.icon}
-          </button>
+          <div key={tool.key}>
+            <button
+              onClick={() =>
+                setActiveDrawingTool(
+                  tool.key === "pointer" ? null : (tool.key as DrawingType)
+                )
+              }
+              className="flex h-8 w-8 items-center justify-center rounded transition-colors"
+              style={{
+                background: isActive ? "var(--accent)" : "transparent",
+                color: isActive ? "#fff" : "var(--text-tertiary)",
+              }}
+              title={tool.label}
+            >
+              {tool.icon}
+            </button>
+            {tool.separator && (
+              <div className="mx-1.5 my-0.5 h-px" style={{ background: "var(--border-subtle)" }} />
+            )}
+          </div>
         );
       })}
     </div>

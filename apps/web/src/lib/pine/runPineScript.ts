@@ -1,5 +1,6 @@
 import { PineTS } from "pinets";
 import { LocalProvider } from "./localProvider";
+import { extractPineDrawings, type PineDrawings } from "./pineDrawings";
 import type { OHLCBar } from "@/types";
 
 export interface PineResult {
@@ -7,9 +8,21 @@ export interface PineResult {
   plots: Record<string, (number | null)[]>;
   /** Names of all plots in order */
   plotNames: string[];
+  /** Drawing objects (boxes, lines, labels) from the Pine Script */
+  drawings: PineDrawings;
   /** Errors if any */
   error?: string;
 }
+
+// Internal plot names used by PineTS for drawing objects — not actual indicator plots
+const INTERNAL_PLOTS = new Set([
+  "__labels__",
+  "__lines__",
+  "__boxes__",
+  "__linefills__",
+  "__polylines__",
+  "__tables__",
+]);
 
 /**
  * Execute a Pine Script against local OHLC data using PineTS.
@@ -23,7 +36,7 @@ export async function runPineScript(
   timeframe = "D"
 ): Promise<PineResult> {
   if (!data || data.length === 0) {
-    return { plots: {}, plotNames: [], error: "No data provided" };
+    return { plots: {}, plotNames: [], drawings: { boxes: [], lines: [], labels: [] }, error: "No data provided" };
   }
 
   try {
@@ -34,31 +47,41 @@ export async function runPineScript(
     // Create PineTS instance with the local provider
     const pine = new PineTS(provider, symbol, timeframe, data.length);
 
-    // Run the Pine Script
-    const result = await pine.run(pineCode);
+    // Run the Pine Script — returns a Context object
+    const ctx = await pine.run(pineCode);
 
-    // Extract plot data
+    // Extract plot data from Context
     const plots: Record<string, (number | null)[]> = {};
     const plotNames: string[] = [];
 
-    if (result && result.plots) {
-      for (const [name, values] of Object.entries(result.plots)) {
-        if (Array.isArray(values)) {
+    if (ctx && ctx.plots) {
+      for (const [name, plotObj] of Object.entries(ctx.plots)) {
+        // Skip internal drawing plots
+        if (INTERNAL_PLOTS.has(name)) continue;
+
+        const obj = plotObj as any;
+
+        // PineTS plots are objects with a .data array of { time, value, options }
+        if (obj && obj.data && Array.isArray(obj.data)) {
           plotNames.push(name);
-          plots[name] = values.map((v: unknown) =>
-            v === null || v === undefined || (typeof v === "number" && isNaN(v))
+          plots[name] = obj.data.map((d: any) =>
+            d.value === null || d.value === undefined || (typeof d.value === "number" && isNaN(d.value))
               ? null
-              : Number(v)
+              : Number(d.value)
           );
         }
       }
     }
 
-    return { plots, plotNames };
+    // Extract drawing objects (boxes, lines, labels)
+    const drawings = ctx?.plots ? extractPineDrawings(ctx.plots) : { boxes: [], lines: [], labels: [] };
+
+    return { plots, plotNames, drawings };
   } catch (err) {
     return {
       plots: {},
       plotNames: [],
+      drawings: { boxes: [], lines: [], labels: [] },
       error: err instanceof Error ? err.message : String(err),
     };
   }

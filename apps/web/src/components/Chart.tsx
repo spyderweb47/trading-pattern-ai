@@ -22,6 +22,7 @@ import { extractFingerprint } from "@/lib/patternFingerprint";
 import { PatternSelectorPrimitive } from "@/lib/chart-primitives/PatternSelectorPrimitive";
 import { DrawingToolsPrimitive } from "@/lib/chart-primitives/DrawingToolsPrimitive";
 import { PatternHighlightPrimitive, setTriggerRatio } from "@/lib/chart-primitives/PatternHighlightPrimitive";
+import { PineDrawingsPrimitive } from "@/lib/chart-primitives/PineDrawingsPrimitive";
 import type { DrawingPhase } from "@/lib/chart-primitives/patternSelectorTypes";
 import { PatternSelectorToolbar } from "./PatternSelectorToolbar";
 
@@ -55,7 +56,9 @@ export function Chart({
   const patternPrimitiveRef = useRef<PatternSelectorPrimitive | null>(null);
   const drawingPrimitiveRef = useRef<DrawingToolsPrimitive | null>(null);
   const highlightPrimitiveRef = useRef<PatternHighlightPrimitive | null>(null);
+  const pineDrawingsRef = useRef<PineDrawingsPrimitive | null>(null);
 
+  const darkMode = useStore((s) => s.darkMode);
   const indicators = useStore((s) => s.indicators);
   const setCapturedPattern = useStore((s) => s.setCapturedPattern);
   const chartFocus = useStore((s) => s.chartFocus);
@@ -78,27 +81,27 @@ export function Chart({
 
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: "#131722" },
-        textColor: "#787b86",
+        background: { type: ColorType.Solid, color: darkMode ? "#131722" : "#ffffff" },
+        textColor: darkMode ? "#b2b5be" : "#6b7280",
         fontFamily: "'Chakra Petch', sans-serif",
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: "#1e222d", style: 0 },
-        horzLines: { color: "#1e222d", style: 0 },
+        vertLines: { color: darkMode ? "#1e222d" : "#f0f0f3", style: 0 },
+        horzLines: { color: darkMode ? "#1e222d" : "#f0f0f3", style: 0 },
       },
       crosshair: {
         mode: 0,
-        vertLine: { color: "#758696", width: 1, style: 3, labelBackgroundColor: "#2a2e39" },
-        horzLine: { color: "#758696", width: 1, style: 3, labelBackgroundColor: "#2a2e39" },
+        vertLine: { color: darkMode ? "#758696" : "#9ca3af", width: 1, style: 3, labelBackgroundColor: darkMode ? "#2a2e39" : "#374151" },
+        horzLine: { color: darkMode ? "#758696" : "#9ca3af", width: 1, style: 3, labelBackgroundColor: darkMode ? "#2a2e39" : "#374151" },
       },
       timeScale: {
-        borderColor: "#2a2e39",
+        borderColor: darkMode ? "#2a2e39" : "#e5e5ea",
         timeVisible: true,
         secondsVisible: false,
       },
       rightPriceScale: {
-        borderColor: "#2a2e39",
+        borderColor: darkMode ? "#2a2e39" : "#e5e5ea",
         scaleMargins: { top: 0.1, bottom: 0.2 },
       },
     });
@@ -119,7 +122,6 @@ export function Chart({
     });
     chart.priceScale("volume").applyOptions({
       scaleMargins: { top: 0.85, bottom: 0 },
-      drawTicks: false,
       borderVisible: false,
       visible: false,
     });
@@ -147,6 +149,11 @@ export function Chart({
     series.attachPrimitive(highlightPrimitive);
     highlightPrimitiveRef.current = highlightPrimitive;
 
+    // Pine Script drawings primitive
+    const pineDrawingsPrimitive = new PineDrawingsPrimitive();
+    series.attachPrimitive(pineDrawingsPrimitive);
+    pineDrawingsRef.current = pineDrawingsPrimitive;
+
     chartRef.current = chart;
     seriesRef.current = series;
 
@@ -167,7 +174,7 @@ export function Chart({
     // Mouse handlers — route based on active tool
     const el = containerRef.current;
 
-    const onMouseDown = (e: MouseEvent) => {
+    const onMouseDown = (e: PointerEvent) => {
       const rect = el.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -197,7 +204,7 @@ export function Chart({
       }
     };
 
-    const onMouseMove = (e: MouseEvent) => {
+    const onMouseMove = (e: PointerEvent) => {
       const rect = el.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -211,7 +218,7 @@ export function Chart({
       primitive.onMouseMove(x, y);
     };
 
-    const onMouseUp = (e: MouseEvent) => {
+    const onMouseUp = (e: PointerEvent) => {
       const tool = useStore.getState().activeDrawingTool;
 
       if (tool === "pattern_select") {
@@ -250,7 +257,9 @@ export function Chart({
       series.detachPrimitive(primitive);
       series.detachPrimitive(drawPrimitive);
       series.detachPrimitive(highlightPrimitive);
+      series.detachPrimitive(pineDrawingsPrimitive);
       patternPrimitiveRef.current = null;
+      pineDrawingsRef.current = null;
       drawingPrimitiveRef.current = null;
       highlightPrimitiveRef.current = null;
       chart.remove();
@@ -259,7 +268,7 @@ export function Chart({
       volumeSeriesRef.current = null;
       indicatorSeriesRef.current.clear();
     };
-  }, []);
+  }, [darkMode]);
 
   // Update data
   useEffect(() => {
@@ -443,6 +452,18 @@ export function Chart({
 
   const storeDrawings = useStore((s) => s.drawings);
 
+  // Render Pine Script drawings
+  const pineDrawings = useStore((s) => s.pineDrawings);
+  useEffect(() => {
+    const p = pineDrawingsRef.current;
+    if (!p) return;
+    if (pineDrawings && data.length > 0) {
+      p.setDrawings(pineDrawings, data);
+    } else {
+      p.clear();
+    }
+  }, [pineDrawings, data]);
+
   // Sync active drawing tool from store to primitive
   useEffect(() => {
     const p = drawingPrimitiveRef.current;
@@ -607,7 +628,7 @@ export function Chart({
   }, [drawingPhase, hasSelection]);
 
   return (
-    <div className="relative h-full w-full" style={{ background: "#131722" }}>
+    <div className="relative h-full w-full" style={{ background: "var(--bg)" }}>
       <div ref={containerRef} className="absolute inset-0" />
 
       {data.length > 0 && (activeDrawingTool === "pattern_select" || hasSelection) && (

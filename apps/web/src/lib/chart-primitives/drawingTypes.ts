@@ -1,6 +1,14 @@
 import type { Time } from "lightweight-charts";
 
-export type DrawingType = "trendline" | "long_position" | "short_position" | "pattern_select";
+export type DrawingType =
+  | "trendline"
+  | "horizontal_line"
+  | "vertical_line"
+  | "rectangle"
+  | "fibonacci"
+  | "long_position"
+  | "short_position"
+  | "pattern_select";
 
 export interface AnchorPoint {
   time: Time;
@@ -19,6 +27,8 @@ export interface Drawing {
   /** Time range for position box width */
   timeStart?: Time;
   timeEnd?: Time;
+  /** Fibonacci levels (default: 0, 0.236, 0.382, 0.5, 0.618, 0.786, 1) */
+  fibLevels?: number[];
   selected: boolean;
 }
 
