@@ -48,12 +48,22 @@ Each trade object MUST have ALL these fields:
 
 equity: array of portfolio value at each bar (starting at seedAmount).
 
-## Rules
-- Include inline SMA/EMA/RSI helper functions as needed
+## CRITICAL RULES
+- EVERY function you call MUST be defined in the script. Do NOT assume any function exists.
+- If you use RSI, you MUST define calculateRSI(). If you use SMA, define calculateSMA(). Etc.
+- Do NOT write "assuming X is defined elsewhere" — define it yourself.
+- Always bounds-check array access: never access data[i] where i < 0 or i >= data.length
+- Start the main loop at index >= max indicator period (e.g., i = 200 if using SMA200)
+- In indicator helpers, return null if not enough data (idx < period)
+- Push to equity array on EVERY bar iteration, not just when in a trade
 - Use simple for loops: for (let i = 0; i < data.length; i++)
 - Track max drawdown and stop trading if exceeded
 - Do NOT use import/require/fetch
-- Handle edge cases (enough bars for indicators)
+- Define pnl variable before using it outside trade blocks
+- Indicator lookbacks must be relative to current bar index, NOT the end of the array
+- Entry conditions should be achievable — avoid conditions that require breaking all-time highs/lows
+- The strategy SHOULD produce trades on typical market data. If entry requires rare conditions, loosen them.
+- Test your logic mentally: if SMA50 > SMA200 on 40% of bars, the strategy should enter on those bars
 
 Return ONLY JavaScript code. No markdown fences."""
 

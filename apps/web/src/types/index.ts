@@ -176,3 +176,71 @@ export interface CapturedPatternData {
     tradeSlope: number;
   }>;
 }
+
+// ============================================================================
+// Playground Mode Types
+// ============================================================================
+
+export type AppMode = 'building' | 'playground';
+
+export type PositionSide = 'long' | 'short';
+export type OrderType = 'market' | 'limit';
+export type OrderStatus = 'pending' | 'filled' | 'cancelled';
+export type ExitReason = 'manual' | 'tp' | 'sl' | 'liquidation';
+
+export interface DemoWallet {
+  initialBalance: number;
+  balance: number;
+}
+
+export interface Position {
+  id: string;
+  side: PositionSide;
+  size: number;              // USD notional
+  leverage: number;          // 1 — 20
+  entryPrice: number;
+  margin: number;            // size / leverage
+  liquidationPrice: number;
+  takeProfit?: number;
+  stopLoss?: number;
+  openedAtBarIdx: number;
+  openedAtTime: number;
+  unrealizedPnl: number;
+  unrealizedPnlPct: number;
+}
+
+export interface PerpOrder {
+  id: string;
+  type: OrderType;
+  side: PositionSide;
+  size: number;
+  leverage: number;
+  limitPrice?: number;
+  takeProfit?: number;
+  stopLoss?: number;
+  reduceOnly: boolean;
+  status: OrderStatus;
+  createdAtBarIdx: number;
+}
+
+export interface PlaygroundTrade {
+  id: string;
+  side: PositionSide;
+  size: number;
+  leverage: number;
+  entryPrice: number;
+  exitPrice: number;
+  entryTime: number;
+  exitTime: number;
+  pnl: number;
+  pnlPct: number;
+  fees: number;
+  exitReason: ExitReason;
+}
+
+export interface PlaygroundReplay {
+  isPlaying: boolean;
+  speed: number;             // 0.5, 1, 2, 5, 10, 1000
+  currentBarIndex: number;
+  totalBars: number;
+}

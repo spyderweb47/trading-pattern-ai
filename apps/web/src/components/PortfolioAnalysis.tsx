@@ -67,28 +67,25 @@ export function PortfolioAnalysis() {
         </div>
       </div>
 
-      {/* Per-Trade PnL Bars */}
-      {pnls.length > 0 && (
-        <div>
-          <div className="text-[9px] font-semibold uppercase mb-1" style={{ color: "var(--text-tertiary)" }}>Per-Trade PnL</div>
-          <div className="flex items-center gap-px h-12 rounded overflow-hidden" style={{ background: "var(--surface)" }}>
-            {pnls.map((pnl, i) => {
-              const maxPnl = Math.max(...pnls.map(Math.abs), 1);
-              const h = (Math.abs(pnl) / maxPnl) * 100;
+      {/* Portfolio Value — large display */}
+      {eqValues.length > 0 && (
+        <div className="mb-3 text-center">
+          {(() => {
+              const finalVal = eqValues[eqValues.length - 1];
+              const startVal = eqValues[0];
+              const change = finalVal - startVal;
+              const changePct = startVal > 0 ? (change / startVal) * 100 : 0;
               return (
-                <div
-                  key={i}
-                  className="flex-1 min-w-[2px]"
-                  style={{
-                    height: `${Math.max(4, h / 2)}%`,
-                    background: pnl >= 0 ? "var(--success)" : "var(--danger)",
-                    opacity: 0.8,
-                    alignSelf: pnl >= 0 ? "flex-end" : "flex-start",
-                  }}
-                />
+                <>
+                  <div className="text-[24px] font-bold" style={{ color: "var(--text-primary)" }}>
+                    {"$"}{finalVal.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </div>
+                  <div className="text-[12px] font-medium" style={{ color: change >= 0 ? "var(--success)" : "var(--danger)" }}>
+                    {change >= 0 ? "+" : ""}{"$"}{Math.abs(change).toLocaleString(undefined, { maximumFractionDigits: 0 })} ({changePct >= 0 ? "+" : ""}{changePct.toFixed(1)}%)
+                  </div>
+                </>
               );
-            })}
-          </div>
+          })()}
         </div>
       )}
 

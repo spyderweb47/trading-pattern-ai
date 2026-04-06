@@ -51,7 +51,7 @@ export function LeftSidebar() {
       {/* Header */}
       <div className="border-b border-slate-200 px-3 py-3">
         <h1 className="text-sm font-bold tracking-tight text-slate-900">
-          Trading Pattern AI
+          Vibe Trade
         </h1>
       </div>
 

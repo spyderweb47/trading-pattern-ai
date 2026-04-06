@@ -5,12 +5,37 @@ import { useStore } from "@/store/useStore";
 export function TopBar() {
   const darkMode = useStore((s) => s.darkMode);
   const toggleDarkMode = useStore((s) => s.toggleDarkMode);
+  const appMode = useStore((s) => s.appMode);
+  const setAppMode = useStore((s) => s.setAppMode);
 
   return (
     <div className="flex items-center gap-4 border-b px-4 py-2" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
       <h1 className="text-sm font-bold tracking-tight whitespace-nowrap" style={{ color: "var(--text-primary)" }}>
-        Trading Pattern AI
+        Vibe Trade
       </h1>
+
+      {/* App Mode Segmented Control */}
+      <div
+        className="flex items-center rounded-md p-0.5"
+        style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
+      >
+        {(["building", "playground"] as const).map((m) => {
+          const active = appMode === m;
+          return (
+            <button
+              key={m}
+              onClick={() => setAppMode(m)}
+              className="rounded px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition-all"
+              style={{
+                background: active ? "var(--accent)" : "transparent",
+                color: active ? "#fff" : "var(--text-tertiary)",
+              }}
+            >
+              {m}
+            </button>
+          );
+        })}
+      </div>
 
       <div className="flex-1" />
 

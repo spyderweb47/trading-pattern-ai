@@ -18,6 +18,10 @@ export async function executeStrategy(
 
   const raw = await runStrategyInWorker(script, data, workerConfig);
 
+  if (!raw || typeof raw !== "object") {
+    throw new Error("Strategy script did not return { trades, equity }. Make sure your script returns an object with trades and equity arrays.");
+  }
+
   // Normalize equity
   const rawEq = raw.equity;
   const equityArr: number[] = Array.isArray(rawEq)
@@ -31,14 +35,39 @@ export async function executeStrategy(
   const trades: Trade[] = rawTrades
     .filter((t: any) => t.entryPrice != null && t.exitPrice != null)
     .map((t: any, i: number) => {
-      const entryPrice = t.entryPrice || 0;
-      const exitPrice = t.exitPrice || 0;
       const dir = t.type || t.direction || "long";
       const isLong = dir === "long";
-      const pnl = t.pnl ?? (isLong ? exitPrice - entryPrice : entryPrice - exitPrice);
-      const pnlPct = t.pnlPercent ?? t.pnlPct ?? (entryPrice !== 0 ? (pnl / entryPrice) * 100 : 0);
       const entryIdx = t.entryIdx ?? t.index ?? t.entryIndex ?? 0;
       const exitIdx = t.exitIdx ?? t.exitIndex ?? entryIdx + 1;
+
+      // Resolve entry/exit prices — fall back to bar data if script returns 0
+      let entryPrice = t.entryPrice ?? 0;
+      let exitPrice = t.exitPrice ?? 0;
+      if (!entryPrice && entryIdx >= 0 && entryIdx < data.length) {
+        entryPrice = data[entryIdx].close;
+      }
+      if (!exitPrice && exitIdx >= 0 && exitIdx < data.length) {
+        exitPrice = data[exitIdx].close;
+      }
+
+      // Compute PnL — prefer script values, fall back to price-based calculation
+      let pnl: number;
+      if (t.pnl != null && isFinite(t.pnl)) {
+        pnl = t.pnl;
+      } else {
+        pnl = isLong ? exitPrice - entryPrice : entryPrice - exitPrice;
+      }
+
+      // Compute PnL% — prefer script values, fall back to entry-price-based calc
+      let pnlPct: number;
+      const rawPct = t.pnlPercent ?? t.pnlPct;
+      if (rawPct != null && isFinite(rawPct) && Math.abs(rawPct) < 10000) {
+        pnlPct = rawPct;
+      } else if (entryPrice > 0) {
+        pnlPct = (pnl / entryPrice) * 100;
+      } else {
+        pnlPct = 0;
+      }
 
       return {
         id: `trade-${i}`,
@@ -166,13 +195,30 @@ function runStrategyInWorker(
   return new Promise((resolve, reject) => {
     let body = script.trim();
 
-    // Detect function-wrapped scripts
-    const funcMatch = body.match(/^function\s+(\w+)\s*\(\s*data\s*,\s*config\s*\)/);
-    const arrowMatch = body.match(/^const\s+(\w+)\s*=\s*\(\s*data\s*,\s*config\s*\)\s*=>/);
-    if (funcMatch) body += `\nreturn ${funcMatch[1]}(data, config);`;
-    else if (arrowMatch) body += `\nreturn ${arrowMatch[1]}(data, config);`;
-    else if (!body.includes("return {") && !body.includes("return{") && !body.includes("return ")) {
-      body += "\nreturn { trades: trades || [], equity: equity || [] };";
+    // Detect function-wrapped scripts and ensure they get called.
+    // Match all named functions that take (data, config) — pick the last one
+    // (helpers are usually defined first, the main strategy function last).
+    const funcMatches = [...body.matchAll(/function\s+(\w+)\s*\(\s*data\s*,\s*config\s*\)/g)];
+    const arrowMatches = [...body.matchAll(/(?:const|let|var)\s+(\w+)\s*=\s*\(\s*data\s*,\s*config\s*\)\s*=>/g)];
+
+    // Check if there's already a top-level call to any of these functions
+    const allFnNames = [...funcMatches, ...arrowMatches].map(m => m[1]);
+    const hasCall = allFnNames.some(name => {
+      // Look for fnName(data, config) call that's NOT the definition
+      const callPattern = new RegExp(`(?<!function\\s+)(?<!const\\s+${name}\\s*=\\s*)${name}\\s*\\(\\s*data\\s*,\\s*config\\s*\\)`);
+      return callPattern.test(body);
+    });
+
+    if (!hasCall) {
+      if (funcMatches.length > 0) {
+        const mainFn = funcMatches[funcMatches.length - 1][1];
+        body += `\nreturn ${mainFn}(data, config);`;
+      } else if (arrowMatches.length > 0) {
+        const mainFn = arrowMatches[arrowMatches.length - 1][1];
+        body += `\nreturn ${mainFn}(data, config);`;
+      } else if (!body.includes("return {") && !body.includes("return{") && !body.includes("return ")) {
+        body += "\nreturn { trades: trades || [], equity: equity || [] };";
+      }
     }
 
     const workerCode = `

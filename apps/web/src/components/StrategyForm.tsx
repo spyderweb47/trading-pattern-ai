@@ -26,7 +26,7 @@ export function StrategyForm({ onSubmit, loading, initialConfig }: Props) {
   });
   const [expanded, setExpanded] = useState(true);
 
-  const isValid = config.entryCondition.trim() && config.exitCondition.trim();
+  const isValid = config.entryCondition.trim().length > 0;
 
   const update = (partial: Partial<StrategyConfig>) =>
     setConfig((prev) => ({ ...prev, ...partial }));
@@ -68,60 +68,50 @@ export function StrategyForm({ onSubmit, loading, initialConfig }: Props) {
             />
           </Field>
 
-          {/* Exit Condition */}
-          <Field label="Exit Condition" required>
-            <textarea
-              value={config.exitCondition}
-              onChange={(e) => update({ exitCondition: e.target.value })}
-              placeholder="e.g., RSI > 70 or opposite signal"
-              rows={2}
-              className="w-full rounded px-2 py-1.5 text-[11px] resize-none outline-none"
-              style={{ background: "var(--surface)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
-            />
-          </Field>
-
-          {/* TP / SL row */}
-          <div className="flex gap-2">
-            <Field label="Take Profit" required className="flex-1">
-              <div className="flex gap-1">
-                <input
-                  type="number"
-                  value={config.takeProfit.value}
-                  onChange={(e) => update({ takeProfit: { ...config.takeProfit, value: parseFloat(e.target.value) || 0 } })}
-                  className="flex-1 rounded px-2 py-1 text-[11px] outline-none w-16"
-                  style={{ background: "var(--surface)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
-                />
-                <select
-                  value={config.takeProfit.type}
-                  onChange={(e) => update({ takeProfit: { ...config.takeProfit, type: e.target.value as "percentage" | "fixed" } })}
-                  className="rounded px-1 py-1 text-[10px] outline-none"
-                  style={{ background: "var(--surface)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
-                >
-                  <option value="percentage">%</option>
-                  <option value="fixed">$</option>
-                </select>
-              </div>
-            </Field>
-
-            <Field label="Stop Loss" required className="flex-1">
-              <div className="flex gap-1">
-                <input
-                  type="number"
-                  value={config.stopLoss.value}
-                  onChange={(e) => update({ stopLoss: { ...config.stopLoss, value: parseFloat(e.target.value) || 0 } })}
-                  className="flex-1 rounded px-2 py-1 text-[11px] outline-none w-16"
-                  style={{ background: "var(--surface)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
-                />
-                <select
-                  value={config.stopLoss.type}
-                  onChange={(e) => update({ stopLoss: { ...config.stopLoss, type: e.target.value as "percentage" | "trailing" } })}
-                  className="rounded px-1 py-1 text-[10px] outline-none"
-                  style={{ background: "var(--surface)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
-                >
-                  <option value="percentage">%</option>
-                  <option value="trailing">Trail</option>
-                </select>
-              </div>
+          {/* Exit Strategy Section */}
+          <div className="rounded p-2 space-y-2" style={{ border: "1px solid var(--border-subtle)", background: "var(--surface)" }}>
+            <div className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+              Exit Strategy <span style={{ color: "var(--danger)" }}>*</span>
+            </div>
+            <div className="flex gap-2">
+              <Field label="Take Profit" required className="flex-1">
+                <div className="flex gap-1">
+                  <input type="number" value={config.takeProfit.value}
+                    onChange={(e) => update({ takeProfit: { ...config.takeProfit, value: parseFloat(e.target.value) || 0 } })}
+                    className="flex-1 rounded px-2 py-1 text-[11px] outline-none w-16"
+                    style={{ background: "var(--surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)" }} />
+                  <select value={config.takeProfit.type}
+                    onChange={(e) => update({ takeProfit: { ...config.takeProfit, type: e.target.value as "percentage" | "fixed" } })}
+                    className="rounded px-1 py-1 text-[10px] outline-none"
+                    style={{ background: "var(--surface-2)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>
+                    <option value="percentage">%</option>
+                    <option value="fixed">$</option>
+                  </select>
+                </div>
+              </Field>
+              <Field label="Stop Loss" required className="flex-1">
+                <div className="flex gap-1">
+                  <input type="number" value={config.stopLoss.value}
+                    onChange={(e) => update({ stopLoss: { ...config.stopLoss, value: parseFloat(e.target.value) || 0 } })}
+                    className="flex-1 rounded px-2 py-1 text-[11px] outline-none w-16"
+                    style={{ background: "var(--surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)" }} />
+                  <select value={config.stopLoss.type}
+                    onChange={(e) => update({ stopLoss: { ...config.stopLoss, type: e.target.value as "percentage" | "trailing" } })}
+                    className="rounded px-1 py-1 text-[10px] outline-none"
+                    style={{ background: "var(--surface-2)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>
+                    <option value="percentage">%</option>
+                    <option value="trailing">Trail</option>
+                  </select>
+                </div>
+              </Field>
+            </div>
+            <Field label="Exit Signal (optional)">
+              <textarea value={config.exitCondition}
+                onChange={(e) => update({ exitCondition: e.target.value })}
+                placeholder="Additional exit signal (e.g., RSI > 70, EMA crossover)"
+                rows={1}
+                className="w-full rounded px-2 py-1.5 text-[11px] resize-none outline-none"
+                style={{ background: "var(--surface-2)", color: "var(--text-primary)", border: "1px solid var(--border)" }} />
             </Field>
           </div>
 
@@ -167,7 +157,7 @@ export function StrategyForm({ onSubmit, loading, initialConfig }: Props) {
             className="w-full rounded py-2 text-[11px] font-semibold transition-colors disabled:opacity-40"
             style={{ background: "var(--accent)", color: "#fff" }}
           >
-            {loading ? "Generating & Running..." : "Generate & Run Strategy"}
+            {loading ? "Generating..." : "Generate Strategy"}
           </button>
         </div>
       )}

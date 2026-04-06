@@ -9,6 +9,7 @@ import { executePatternScript } from "@/lib/scriptExecutor";
 import { executeStrategy } from "@/lib/strategyExecutor";
 import { runPineScript } from "@/lib/pine/runPineScript";
 import { StrategyForm } from "./StrategyForm";
+import { TradingPanel } from "./playground/TradingPanel";
 import type { StrategyConfig } from "@/types";
 
 const TAG_STYLES: Record<string, { bg: string; color: string }> = {
@@ -64,6 +65,7 @@ export function RightSidebar() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const activeMode = useStore((s) => s.activeMode);
+  const appMode = useStore((s) => s.appMode);
   const messages = useStore((s) => s.messages);
   const addMessage = useStore((s) => s.addMessage);
   const activeDataset = useStore((s) => s.activeDataset);
@@ -209,10 +211,9 @@ export function RightSidebar() {
   const handleStrategySubmit = async (config: StrategyConfig) => {
     setStrategyConfig(config);
     setLoading(true);
-    addMessage({ role: "user", content: `Strategy: Entry=${config.entryCondition}, Exit=${config.exitCondition}, TP=${config.takeProfit.value}${config.takeProfit.type === "percentage" ? "%" : "$"}, SL=${config.stopLoss.value}${config.stopLoss.type === "percentage" ? "%" : ""}, Seed=$${config.seedAmount}` });
+    addMessage({ role: "user", content: `Strategy: Entry=${config.entryCondition}, Exit=${config.exitCondition || "TP/SL only"}, TP=${config.takeProfit.value}${config.takeProfit.type === "percentage" ? "%" : "$"}, SL=${config.stopLoss.value}${config.stopLoss.type === "percentage" ? "%" : ""}, Max DD=${config.maxDrawdown}%, Seed=$${config.seedAmount}${config.specialInstructions ? ", Special: " + config.specialInstructions : ""}` });
 
     try {
-      // Step 1: Generate script from config
       const result = await sendChat("Generate strategy", activeMode, {
         strategy_config: config,
       });
@@ -220,42 +221,8 @@ export function RightSidebar() {
 
       if (result.script) {
         setCurrentScript(result.script);
-
-        // Step 2: Auto-run backtest
-        const runData = chartData;
-        if (runData && runData.length > 0) {
-          setRunState("running");
-          addMessage({ role: "agent", content: "Running backtest..." });
-
-          const btResult = await executeStrategy(result.script, runData, config);
-          setBacktestResults(btResult);
-          setRunState("done");
-          addMessage({
-            role: "agent",
-            content: `Backtest complete: ${btResult.totalTrades} trades, ${(btResult.winRate * 100).toFixed(1)}% win rate, ${(btResult.totalReturn * 100).toFixed(1)}% return.`,
-          });
-
-          // Step 3: Get AI analysis
-          try {
-            const analysisResult = await sendChat("Analyze results", activeMode, {
-              strategy_config: config,
-              analyze_results: btResult.metrics || {},
-            });
-            const suggestions = (analysisResult.data as Record<string, unknown>)?.suggestions as string[] || [];
-            setBacktestResults({
-              ...btResult,
-              analysis: analysisResult.reply,
-              suggestions,
-            });
-            addMessage({ role: "agent", content: analysisResult.reply });
-          } catch {
-            // Analysis failed — results still available
-          }
-
-          setTimeout(() => setRunState("idle"), 2000);
-        } else {
-          addMessage({ role: "agent", content: "Upload a dataset first to run the backtest." });
-        }
+        setView("code");
+        addMessage({ role: "agent", content: "Script loaded in Code tab. Review and click Run Backtest when ready." });
       }
     } catch (err) {
       addMessage({ role: "agent", content: `Error: ${err instanceof Error ? err.message : "Failed"}` });
@@ -293,6 +260,18 @@ export function RightSidebar() {
         role: "agent",
         content: `Backtest complete: ${result.totalTrades} trades, ${(result.winRate * 100).toFixed(1)}% win rate, ${(result.totalReturn * 100).toFixed(1)}% return, Sharpe ${result.sharpeRatio}.`,
       });
+
+      // Get AI analysis
+      try {
+        const analysisResult = await sendChat("Analyze results", activeMode, {
+          strategy_config: config,
+          analyze_results: result.metrics || {},
+        });
+        const suggestions = (analysisResult.data as Record<string, unknown>)?.suggestions as string[] || [];
+        setBacktestResults({ ...result, analysis: analysisResult.reply, suggestions });
+        if (analysisResult.reply) addMessage({ role: "agent", content: analysisResult.reply });
+      } catch { /* analysis optional */ }
+
       setTimeout(() => setRunState("idle"), 2000);
     } catch (err) {
       setRunState("error");
@@ -793,7 +772,15 @@ export function RightSidebar() {
 
       {/* Strategy form is rendered inside the chat area as a floating card */}
 
-      {/* ─── Agent Section ─── */}
+      {/* ─── Trading Panel (Playground mode) ─── */}
+      {appMode === "playground" && (
+        <div className="flex flex-1 flex-col min-h-0">
+          <TradingPanel />
+        </div>
+      )}
+
+      {/* ─── Agent Section (Building mode) ─── */}
+      {appMode === "building" && (
       <div className="flex flex-1 flex-col min-h-0">
         {/* Agent header with floating mode toggle */}
         <div className="flex items-center justify-center py-1.5" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
@@ -850,7 +837,7 @@ export function RightSidebar() {
           {view === "chat" ? (
             <div className="p-3 space-y-3">
               {/* Strategy form card (floating in chat) */}
-              {activeMode === "strategy" && (
+              {activeMode === "strategy" && !currentScript && (
                 <div className="mb-3">
                   <StrategyForm
                     onSubmit={handleStrategySubmit}
@@ -938,12 +925,19 @@ export function RightSidebar() {
             >
               Save
             </button>
-            {patternMatches.length > 0 && (
+            {(patternMatches.length > 0 || activeMode === "strategy") && (
               <button
-                onClick={() => { setPatternMatches([]); setPendingFingerprint(null); }}
-                className="rounded border border-[var(--border)] px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-50 hover:text-red-500"
+                onClick={() => {
+                  setPatternMatches([]);
+                  setPendingFingerprint(null);
+                  setCurrentScript("");
+                  setBacktestResults(null);
+                  setView("chat");
+                }}
+                className="rounded border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:opacity-80"
+                style={{ color: "var(--danger)" }}
               >
-                Clear
+                {activeMode === "strategy" ? "New Strategy" : "Clear"}
               </button>
             )}
           </div>
@@ -976,6 +970,7 @@ export function RightSidebar() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

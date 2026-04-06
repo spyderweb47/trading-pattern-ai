@@ -7,11 +7,21 @@ import { BottomPanel } from "@/components/BottomPanel";
 import { Chart } from "@/components/Chart";
 import { DrawingToolbar } from "@/components/DrawingToolbar";
 import { TimeframeSelector } from "@/components/TimeframeSelector";
+import { PlaygroundControls } from "@/components/playground/PlaygroundControls";
 import { useStore } from "@/store/useStore";
+import { usePlaygroundReplay } from "@/hooks/usePlaygroundReplay";
 
 export default function Home() {
   const chartData = useStore((s) => s.chartData);
   const patternMatches = useStore((s) => s.patternMatches);
+  const appMode = useStore((s) => s.appMode);
+
+  // Drive the replay loop
+  usePlaygroundReplay();
+
+  // In playground mode, pass the full dataset to Chart — Chart renders whitespace
+  // for future bars so drawings/trend lines can extend past the replay cursor.
+  const displayedData = chartData;
   const rootRef = useRef<HTMLDivElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const sidebarDrag = useRef({ active: false, startX: 0, startW: 0 });
@@ -57,11 +67,14 @@ export default function Home() {
         {/* Timeframe selector */}
         <TimeframeSelector />
 
+        {/* Playground replay controls (playground mode only) */}
+        {appMode === "playground" && <PlaygroundControls />}
+
         {/* Chart Area with Drawing Toolbar */}
         <div className="flex flex-1 min-h-0">
           <DrawingToolbar />
           <div className="flex-1 min-h-0">
-            <Chart data={chartData} patternMatches={patternMatches} />
+            <Chart data={displayedData} patternMatches={appMode === "playground" ? [] : patternMatches} />
           </div>
         </div>
 

@@ -7,7 +7,11 @@ import type { Trade } from "@/types";
 export function TradeList() {
   const results = useStore((s) => s.backtestResults);
   const setChartFocus = useStore((s) => s.setChartFocus);
+  const setPlottedTrades = useStore((s) => s.setPlottedTrades);
+  const plottedTrades = useStore((s) => s.plottedTrades);
+  const setHighlightedTradeId = useStore((s) => s.setHighlightedTradeId);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [plotAll, setPlotAll] = useState(false);
 
   if (!results || results.trades.length === 0) {
     return (
@@ -17,21 +21,53 @@ export function TradeList() {
     );
   }
 
-  const handleTradeClick = (trade: Trade) => {
-    setExpandedId(expandedId === trade.id ? null : trade.id);
+  const handlePlotAll = (checked: boolean) => {
+    setPlotAll(checked);
+    setPlottedTrades(checked ? results.trades : []);
+  };
 
-    // Zoom chart to trade's time range
-    const startT = typeof trade.entryTime === "string" ? Number(trade.entryTime) : trade.entryTime;
-    const endT = typeof trade.exitTime === "string" ? Number(trade.exitTime) : trade.exitTime;
-    if (startT && endT) {
-      const duration = endT - startT;
-      const pad = Math.max(duration * 2, 86400 * 3);
-      setChartFocus({ startTime: startT - pad, endTime: endT + pad });
+  const handleTradeClick = (trade: Trade) => {
+    const wasExpanded = expandedId === trade.id;
+    setExpandedId(wasExpanded ? null : trade.id);
+
+    // Highlight this trade box (or clear highlight if collapsing)
+    setHighlightedTradeId(wasExpanded ? null : trade.id);
+
+    // Plot this trade on chart (or clear if collapsing)
+    if (!plotAll) {
+      setPlottedTrades(wasExpanded ? [] : [trade]);
+    }
+
+    // Zoom chart to trade
+    if (!wasExpanded) {
+      const startT = typeof trade.entryTime === "string" ? Number(trade.entryTime) : trade.entryTime;
+      const endT = typeof trade.exitTime === "string" ? Number(trade.exitTime) : trade.exitTime;
+      if (startT && endT) {
+        const duration = endT - startT;
+        const pad = Math.max(duration * 2, 86400 * 3);
+        setChartFocus({ startTime: startT - pad, endTime: endT + pad });
+      }
     }
   };
 
   return (
     <div className="overflow-auto h-full">
+      {/* Header with Plot All toggle */}
+      <div className="flex items-center justify-between px-3 py-1.5" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+        <span className="text-[9px] font-semibold uppercase" style={{ color: "var(--text-muted)" }}>
+          {results.trades.length} trades
+        </span>
+        <label className="flex items-center gap-1.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={plotAll}
+            onChange={(e) => handlePlotAll(e.target.checked)}
+            className="h-3 w-3 rounded"
+          />
+          <span className="text-[9px] font-medium" style={{ color: "var(--text-tertiary)" }}>Plot All on Chart</span>
+        </label>
+      </div>
+
       <table className="w-full text-[10px]">
         <thead>
           <tr style={{ borderBottom: "1px solid var(--border)" }}>
@@ -67,9 +103,9 @@ function TradeRow({ trade, index, expanded, onClick }: { trade: Trade; index: nu
       <tr
         onClick={onClick}
         className="cursor-pointer transition-colors"
-        style={{ borderBottom: "1px solid var(--border-subtle)" }}
-        onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+        style={{ borderBottom: "1px solid var(--border-subtle)", background: expanded ? "var(--surface-2)" : "transparent" }}
+        onMouseEnter={(e) => { if (!expanded) e.currentTarget.style.background = "var(--surface-2)"; }}
+        onMouseLeave={(e) => { if (!expanded) e.currentTarget.style.background = "transparent"; }}
       >
         <td className="py-1.5 px-2" style={{ color: "var(--text-muted)" }}>{index}</td>
         <td className="py-1.5 px-2">
@@ -83,8 +119,8 @@ function TradeRow({ trade, index, expanded, onClick }: { trade: Trade; index: nu
             {trade.direction.toUpperCase()}
           </span>
         </td>
-        <td className="py-1.5 px-2" style={{ color: "var(--text-secondary)" }}>${trade.entryPrice.toFixed(0)}</td>
-        <td className="py-1.5 px-2" style={{ color: "var(--text-secondary)" }}>${trade.exitPrice.toFixed(0)}</td>
+        <td className="py-1.5 px-2" style={{ color: "var(--text-secondary)" }}>${formatPrice(trade.entryPrice)}</td>
+        <td className="py-1.5 px-2" style={{ color: "var(--text-secondary)" }}>${formatPrice(trade.exitPrice)}</td>
         <td className="py-1.5 px-2 text-right font-semibold" style={{ color: trade.pnl >= 0 ? "var(--success)" : "var(--danger)" }}>
           {trade.pnl >= 0 ? "+" : ""}{trade.pnl.toFixed(2)}
         </td>
@@ -95,7 +131,6 @@ function TradeRow({ trade, index, expanded, onClick }: { trade: Trade; index: nu
         <td className="py-1.5 px-2" style={{ color: "var(--text-tertiary)" }}>{trade.reason || "—"}</td>
       </tr>
 
-      {/* Expanded detail */}
       {expanded && (
         <tr>
           <td colSpan={8} className="p-0">
@@ -132,6 +167,13 @@ function TradeRow({ trade, index, expanded, onClick }: { trade: Trade; index: nu
       )}
     </>
   );
+}
+
+function formatPrice(price: number): string {
+  if (price >= 1000) return price.toFixed(0);
+  if (price >= 1) return price.toFixed(2);
+  if (price >= 0.01) return price.toFixed(4);
+  return price.toFixed(6);
 }
 
 function Th({ children, align }: { children: React.ReactNode; align?: string }) {

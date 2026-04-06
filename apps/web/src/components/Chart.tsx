@@ -23,6 +23,7 @@ import { PatternSelectorPrimitive } from "@/lib/chart-primitives/PatternSelector
 import { DrawingToolsPrimitive } from "@/lib/chart-primitives/DrawingToolsPrimitive";
 import { PatternHighlightPrimitive, setTriggerRatio } from "@/lib/chart-primitives/PatternHighlightPrimitive";
 import { PineDrawingsPrimitive } from "@/lib/chart-primitives/PineDrawingsPrimitive";
+import { TradeBoxPrimitive } from "@/lib/chart-primitives/TradeBoxPrimitive";
 import type { DrawingPhase } from "@/lib/chart-primitives/patternSelectorTypes";
 import { PatternSelectorToolbar } from "./PatternSelectorToolbar";
 
@@ -57,8 +58,15 @@ export function Chart({
   const drawingPrimitiveRef = useRef<DrawingToolsPrimitive | null>(null);
   const highlightPrimitiveRef = useRef<PatternHighlightPrimitive | null>(null);
   const pineDrawingsRef = useRef<PineDrawingsPrimitive | null>(null);
+  const tradeBoxRef = useRef<TradeBoxPrimitive | null>(null);
+  const spacerSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const prevDataLenRef = useRef<number>(0);
+  const prevCursorRef = useRef<number>(-1);
+  const playgroundInitializedRef = useRef<boolean>(false);
 
   const darkMode = useStore((s) => s.darkMode);
+  const appModeTop = useStore((s) => s.appMode);
+  const playgroundCursor = useStore((s) => s.playgroundReplay.currentBarIndex);
   const indicators = useStore((s) => s.indicators);
   const setCapturedPattern = useStore((s) => s.setCapturedPattern);
   const chartFocus = useStore((s) => s.chartFocus);
@@ -99,6 +107,7 @@ export function Chart({
         borderColor: darkMode ? "#2a2e39" : "#e5e5ea",
         timeVisible: true,
         secondsVisible: false,
+        shiftVisibleRangeOnNewBar: false,
       },
       rightPriceScale: {
         borderColor: darkMode ? "#2a2e39" : "#e5e5ea",
@@ -154,6 +163,25 @@ export function Chart({
     series.attachPrimitive(pineDrawingsPrimitive);
     pineDrawingsRef.current = pineDrawingsPrimitive;
 
+    // Trade box primitive for strategy backtest trades
+    const tradeBoxPrimitive = new TradeBoxPrimitive();
+    series.attachPrimitive(tradeBoxPrimitive);
+    tradeBoxRef.current = tradeBoxPrimitive;
+
+    // Hidden spacer series — extends the time scale past the replay cursor so
+    // drawings/trend lines can reach into the future. On its own hidden price
+    // scale so it doesn't affect the main price auto-scale.
+    const spacerSeries = chart.addSeries(LineSeries, {
+      priceScaleId: "spacer-hidden",
+      color: "rgba(0,0,0,0)",
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    chart.priceScale("spacer-hidden").applyOptions({ visible: false });
+    spacerSeriesRef.current = spacerSeries;
+
     chartRef.current = chart;
     seriesRef.current = series;
 
@@ -170,6 +198,30 @@ export function Chart({
     ro.observe(containerRef.current);
     window.addEventListener("resize", handleResize);
     handleResize();
+
+    // In playground mode, intercept fitContent-style resets (double-click on axis
+    // triggers a view that spans all data including the spacer). Clamp back to
+    // real candles when this happens.
+    let lastRangeChangeByUser = false;
+    const onLogicalRangeChange = (range: any) => {
+      if (!range) return;
+      const state = useStore.getState();
+      if (state.appMode !== "playground") return;
+      const cursor = state.playgroundReplay.currentBarIndex;
+      const total = state.playgroundReplay.totalBars;
+      if (total === 0) return;
+      // Detect fitContent: range covers from ~0 to ~(total-1), much larger than cursor+buffer
+      const covers_all_data = range.from <= 2 && range.to >= total - 5;
+      if (covers_all_data && !lastRangeChangeByUser) {
+        // User triggered a fit that included spacer bars — snap back to real candles
+        lastRangeChangeByUser = true;
+        requestAnimationFrame(() => {
+          chart.timeScale().setVisibleLogicalRange({ from: 0, to: cursor });
+          lastRangeChangeByUser = false;
+        });
+      }
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onLogicalRangeChange);
 
     // Mouse handlers — route based on active tool
     const el = containerRef.current;
@@ -258,8 +310,11 @@ export function Chart({
       series.detachPrimitive(drawPrimitive);
       series.detachPrimitive(highlightPrimitive);
       series.detachPrimitive(pineDrawingsPrimitive);
+      series.detachPrimitive(tradeBoxPrimitive);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onLogicalRangeChange);
       patternPrimitiveRef.current = null;
       pineDrawingsRef.current = null;
+      tradeBoxRef.current = null;
       drawingPrimitiveRef.current = null;
       highlightPrimitiveRef.current = null;
       chart.remove();
@@ -274,32 +329,102 @@ export function Chart({
   useEffect(() => {
     if (!seriesRef.current || data.length === 0) return;
 
-    const candleData: CandlestickData<Time>[] = data.map((bar) => ({
-      time: bar.time as Time,
-      open: bar.open,
-      high: bar.high,
-      low: bar.low,
-      close: bar.close,
-    }));
-
-    seriesRef.current.setData(candleData);
-
-    // Set volume data
-    if (volumeSeriesRef.current) {
-      const volumeData = data.map((bar) => ({
+    // Build candle data — in playground, only include bars up to cursor (real data).
+    // Future bars are handled by the invisible spacer series (extends the time scale).
+    const isPlayground = appModeTop === "playground";
+    const candleCount = isPlayground ? Math.min(playgroundCursor + 1, data.length) : data.length;
+    const candleData: CandlestickData<Time>[] = [];
+    for (let i = 0; i < candleCount; i++) {
+      const bar = data[i];
+      candleData.push({
         time: bar.time as Time,
-        value: bar.volume ?? 0,
-        color: bar.close >= bar.open ? "rgba(38,166,154,0.2)" : "rgba(239,83,80,0.2)",
-      }));
-      volumeSeriesRef.current.setData(volumeData);
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+      });
     }
 
-    chartRef.current?.timeScale().fitContent();
+    // Detect replay tick: in playground, cursor advanced but data array is same length
+    const prevCursor = prevCursorRef.current;
+    const isReplayTick =
+      isPlayground &&
+      playgroundInitializedRef.current &&
+      prevCursor >= 0 &&
+      playgroundCursor > prevCursor &&
+      playgroundCursor - prevCursor <= 5 &&
+      data.length === prevDataLenRef.current;
+    prevDataLenRef.current = data.length;
+    prevCursorRef.current = playgroundCursor;
+
+    if (isReplayTick) {
+      // Append only newly-revealed bars via update() — viewport stays put
+      for (let i = prevCursor + 1; i <= playgroundCursor; i++) {
+        const bar = data[i];
+        seriesRef.current.update({
+          time: bar.time as Time,
+          open: bar.open,
+          high: bar.high,
+          low: bar.low,
+          close: bar.close,
+        });
+        if (volumeSeriesRef.current) {
+          volumeSeriesRef.current.update({
+            time: bar.time as Time,
+            value: bar.volume ?? 0,
+            color: bar.close >= bar.open ? "rgba(38,166,154,0.2)" : "rgba(239,83,80,0.2)",
+          });
+        }
+      }
+    } else {
+      seriesRef.current.setData(candleData);
+      if (volumeSeriesRef.current) {
+        const volumeData: { time: Time; value: number; color: string }[] = [];
+        for (let i = 0; i < candleCount; i++) {
+          const bar = data[i];
+          volumeData.push({
+            time: bar.time as Time,
+            value: bar.volume ?? 0,
+            color: bar.close >= bar.open ? "rgba(38,166,154,0.2)" : "rgba(239,83,80,0.2)",
+          });
+        }
+        volumeSeriesRef.current.setData(volumeData);
+      }
+
+      // Feed spacer series FIRST (extends time scale in playground mode)
+      if (spacerSeriesRef.current) {
+        if (isPlayground) {
+          const spacerData: { time: Time; value: number }[] = [];
+          const mid = data[Math.min(playgroundCursor, data.length - 1)]?.close ?? 100;
+          for (let i = 0; i < data.length; i++) {
+            spacerData.push({ time: data[i].time as Time, value: mid });
+          }
+          spacerSeriesRef.current.setData(spacerData);
+        } else {
+          spacerSeriesRef.current.setData([]);
+        }
+      }
+
+      if (isPlayground && !playgroundInitializedRef.current && data.length > 0) {
+        chartRef.current?.timeScale().fitContent();
+        playgroundInitializedRef.current = true;
+      } else if (!isPlayground) {
+        chartRef.current?.timeScale().fitContent();
+      }
+    }
 
     if (!markersRef.current && seriesRef.current) {
       markersRef.current = createSeriesMarkers(seriesRef.current, []);
     }
-  }, [data, darkMode]);
+  }, [data, darkMode, appModeTop, playgroundCursor]);
+
+  // Reset playground init flag when leaving playground mode
+  useEffect(() => {
+    if (appModeTop !== "playground") {
+      playgroundInitializedRef.current = false;
+      prevCursorRef.current = -1;
+    }
+  }, [appModeTop]);
 
   // Update pattern highlight boxes
   useEffect(() => {
@@ -394,7 +519,8 @@ export function Chart({
           });
 
           const lineData: { time: Time; value: number }[] = [];
-          for (let i = 0; i < values.length && i < data.length; i++) {
+          const maxIdx = appModeTop === "playground" ? playgroundCursor : data.length - 1;
+          for (let i = 0; i < values.length && i <= maxIdx && i < data.length; i++) {
             const v = values[i];
             if (v !== null && v !== undefined && data[i]) {
               lineData.push({ time: data[i].time as Time, value: v });
@@ -479,7 +605,7 @@ export function Chart({
         existingSeries.delete(key);
       }
     }
-  }, [indicators, data]);
+  }, [indicators, data, appModeTop, playgroundCursor]);
 
   const storeDrawings = useStore((s) => s.drawings);
 
@@ -550,6 +676,54 @@ export function Chart({
     // Clear the focus so clicking the same row again works
     setChartFocus(null);
   }, [chartFocus, setChartFocus]);
+
+  // Render trade position boxes from strategy backtest
+  const plottedTrades = useStore((s) => s.plottedTrades);
+  const highlightedTradeId = useStore((s) => s.highlightedTradeId);
+  const appMode = useStore((s) => s.appMode);
+  const positions = useStore((s) => s.positions);
+  useEffect(() => {
+    const prim = tradeBoxRef.current;
+    if (!prim) return;
+
+    // In playground mode, feed open positions as live trade boxes
+    if (appMode === "playground") {
+      if (positions.length === 0 || data.length === 0) {
+        prim.clear();
+        return;
+      }
+      const lastBar = data[data.length - 1];
+      const currentPrice = lastBar.close;
+      const currentTime = typeof lastBar.time === "string" ? Number(lastBar.time) : lastBar.time;
+      const asTrades = positions.map((p) => ({
+        id: p.id,
+        entryTime: String(p.openedAtTime),
+        exitTime: String(currentTime),
+        entryPrice: p.entryPrice,
+        exitPrice: currentPrice,
+        direction: p.side,
+        quantity: p.size,
+        pnl: p.unrealizedPnl,
+        pnlPercent: p.unrealizedPnlPct,
+      }));
+      prim.setTrades(asTrades as any, data);
+      return;
+    }
+
+    if (plottedTrades.length === 0) {
+      prim.clear();
+      return;
+    }
+
+    prim.setTrades(plottedTrades, data);
+  }, [plottedTrades, data, appMode, positions]);
+
+  // Highlight a specific trade box when selected in TradeList
+  useEffect(() => {
+    const prim = tradeBoxRef.current;
+    if (!prim) return;
+    prim.setHighlighted(highlightedTradeId ?? null);
+  }, [highlightedTradeId]);
 
   // --- Pattern Selector handlers ---
 

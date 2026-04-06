@@ -95,6 +95,12 @@ interface AppState {
   strategyConfig: import('@/types').StrategyConfig | null;
   setStrategyConfig: (config: import('@/types').StrategyConfig | null) => void;
 
+  // Trade plotting on chart
+  plottedTrades: import('@/types').Trade[];
+  setPlottedTrades: (trades: import('@/types').Trade[]) => void;
+  highlightedTradeId: string | null;
+  setHighlightedTradeId: (id: string | null) => void;
+
   // Chart focus — zoom to a specific time range
   chartFocus: { startTime: number; endTime: number } | null;
   setChartFocus: (focus: { startTime: number; endTime: number } | null) => void;
@@ -105,6 +111,41 @@ interface AppState {
   drawings: Drawing[];
   setDrawings: (drawings: Drawing[]) => void;
   deleteSelectedDrawing: () => void;
+
+  // ===== Playground Mode =====
+  appMode: import('@/types').AppMode;
+  setAppMode: (mode: import('@/types').AppMode) => void;
+
+  playgroundReplay: import('@/types').PlaygroundReplay;
+  setReplayPlaying: (playing: boolean) => void;
+  setReplaySpeed: (speed: number) => void;
+  setReplayBarIndex: (idx: number) => void;
+  setReplayTotalBars: (total: number) => void;
+  resetReplay: () => void;
+
+  demoWallet: import('@/types').DemoWallet;
+  resetWallet: (amount?: number) => void;
+  adjustWalletBalance: (delta: number) => void;
+
+  positions: import('@/types').Position[];
+  setPositions: (positions: import('@/types').Position[]) => void;
+  addPosition: (position: import('@/types').Position) => void;
+  updatePosition: (id: string, patch: Partial<import('@/types').Position>) => void;
+  removePosition: (id: string) => void;
+
+  perpOrders: import('@/types').PerpOrder[];
+  setPerpOrders: (orders: import('@/types').PerpOrder[]) => void;
+  addPerpOrder: (order: import('@/types').PerpOrder) => void;
+  cancelPerpOrder: (id: string) => void;
+  removePerpOrder: (id: string) => void;
+
+  closedTrades: import('@/types').PlaygroundTrade[];
+  addClosedTrade: (trade: import('@/types').PlaygroundTrade) => void;
+  clearClosedTrades: () => void;
+
+  walletEquityHistory: { barIdx: number; equity: number }[];
+  pushWalletEquity: (barIdx: number, equity: number) => void;
+  clearWalletEquityHistory: () => void;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -272,6 +313,12 @@ export const useStore = create<AppState>((set) => ({
   strategyConfig: null,
   setStrategyConfig: (config) => set({ strategyConfig: config }),
 
+  // Trade plotting
+  plottedTrades: [],
+  setPlottedTrades: (trades) => set({ plottedTrades: trades }),
+  highlightedTradeId: null,
+  setHighlightedTradeId: (id) => set({ highlightedTradeId: id }),
+
   // Chart focus
   chartFocus: null,
   setChartFocus: (focus) => set({ chartFocus: focus }),
@@ -285,4 +332,80 @@ export const useStore = create<AppState>((set) => ({
     set((state) => ({
       drawings: state.drawings.filter((d) => !d.selected),
     })),
+
+  // ===== Playground Mode =====
+  appMode: 'building',
+  setAppMode: (mode) =>
+    set((s) => {
+      const next: Partial<typeof s> = { appMode: mode };
+      // When entering playground with no cursor set, start with some initial context
+      if (mode === "playground" && s.playgroundReplay.currentBarIndex === 0) {
+        const activeId = s.activeDataset;
+        const data = activeId ? s.datasetChartData[activeId] : null;
+        const len = data?.length ?? 0;
+        if (len > 0) {
+          const initialCursor = Math.min(Math.floor(len * 0.3), len - 1);
+          next.playgroundReplay = { ...s.playgroundReplay, currentBarIndex: initialCursor, totalBars: len };
+        }
+      }
+      return next as any;
+    }),
+
+  playgroundReplay: { isPlaying: false, speed: 1, currentBarIndex: 0, totalBars: 0 },
+  setReplayPlaying: (playing) =>
+    set((s) => ({ playgroundReplay: { ...s.playgroundReplay, isPlaying: playing } })),
+  setReplaySpeed: (speed) =>
+    set((s) => ({ playgroundReplay: { ...s.playgroundReplay, speed } })),
+  setReplayBarIndex: (idx) =>
+    set((s) => ({ playgroundReplay: { ...s.playgroundReplay, currentBarIndex: idx } })),
+  setReplayTotalBars: (total) =>
+    set((s) => ({
+      playgroundReplay: {
+        ...s.playgroundReplay,
+        totalBars: total,
+        currentBarIndex: Math.min(s.playgroundReplay.currentBarIndex, Math.max(0, total - 1)),
+      },
+    })),
+  resetReplay: () =>
+    set((s) => ({
+      playgroundReplay: { ...s.playgroundReplay, currentBarIndex: 0, isPlaying: false },
+    })),
+
+  demoWallet: { initialBalance: 10000, balance: 10000 },
+  resetWallet: (amount) =>
+    set({
+      demoWallet: { initialBalance: amount ?? 10000, balance: amount ?? 10000 },
+      positions: [],
+      perpOrders: [],
+      closedTrades: [],
+      walletEquityHistory: [],
+    }),
+  adjustWalletBalance: (delta) =>
+    set((s) => ({ demoWallet: { ...s.demoWallet, balance: s.demoWallet.balance + delta } })),
+
+  positions: [],
+  setPositions: (positions) => set({ positions }),
+  addPosition: (position) => set((s) => ({ positions: [...s.positions, position] })),
+  updatePosition: (id, patch) =>
+    set((s) => ({ positions: s.positions.map((p) => (p.id === id ? { ...p, ...patch } : p)) })),
+  removePosition: (id) => set((s) => ({ positions: s.positions.filter((p) => p.id !== id) })),
+
+  perpOrders: [],
+  setPerpOrders: (orders) => set({ perpOrders: orders }),
+  addPerpOrder: (order) => set((s) => ({ perpOrders: [...s.perpOrders, order] })),
+  cancelPerpOrder: (id) =>
+    set((s) => ({
+      perpOrders: s.perpOrders.map((o) => (o.id === id ? { ...o, status: 'cancelled' as const } : o)),
+    })),
+  removePerpOrder: (id) => set((s) => ({ perpOrders: s.perpOrders.filter((o) => o.id !== id) })),
+
+  closedTrades: [],
+  addClosedTrade: (trade) => set((s) => ({ closedTrades: [...s.closedTrades, trade] })),
+  clearClosedTrades: () => set({ closedTrades: [] }),
+
+  walletEquityHistory: [],
+  pushWalletEquity: (barIdx, equity) =>
+    set((s) => ({ walletEquityHistory: [...s.walletEquityHistory, { barIdx, equity }] })),
+  clearWalletEquityHistory: () => set({ walletEquityHistory: [] }),
 }));
+

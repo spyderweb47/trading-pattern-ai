@@ -82,8 +82,8 @@ export async function executeIndicatorScript(
 
   // Detect if the LLM wrapped the code in a function declaration and unwrap it
   // e.g. "const myFn = (data, params) => { ... }" or "function myFn(data, params) { ... }"
-  const arrowMatch = body.match(/^const\s+(\w+)\s*=\s*\(data,?\s*params?\)\s*=>\s*\{/);
-  const funcMatch = body.match(/^function\s+(\w+)\s*\(data,?\s*params?\)\s*\{/);
+  const arrowMatch = body.match(/const\s+(\w+)\s*=\s*\(data,?\s*params?\)\s*=>\s*\{/);
+  const funcMatch = body.match(/function\s+(\w+)\s*\(data,?\s*params?\)\s*\{/);
   if (arrowMatch || funcMatch) {
     const fnName = (arrowMatch || funcMatch)![1];
     // Append a call to the function at the end

@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Trading Pattern AI",
+  title: "Vibe Trade",
   description: "AI-powered trading pattern detection and strategy platform",
 };
 

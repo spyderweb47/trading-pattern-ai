@@ -5,11 +5,17 @@ import { useStore, type Mode } from "@/store/useStore";
 import { PineScriptPanel } from "./PineScriptPanel";
 import { PortfolioAnalysis } from "./PortfolioAnalysis";
 import { TradeList } from "./TradeList";
+import { PositionsTab } from "./playground/PositionsTab";
+import { OrdersTab } from "./playground/OrdersTab";
+import { TradeHistoryTab } from "./playground/TradeHistoryTab";
+import { WalletTab } from "./playground/WalletTab";
 
 const PANEL_TABS: Record<Mode, string[]> = {
   pattern: ["Pattern Analysis", "Pine Script"],
   strategy: ["Portfolio", "Trade List", "Pine Script"],
 };
+
+const PLAYGROUND_TABS = ["Positions", "Open Orders", "Trade History", "Wallet"];
 
 export function BottomPanel() {
   const [collapsed, setCollapsed] = useState(false);
@@ -19,11 +25,17 @@ export function BottomPanel() {
   const dragStartY = useRef(0);
   const dragStartH = useRef(0);
   const activeMode = useStore((s) => s.activeMode);
+  const appMode = useStore((s) => s.appMode);
   const backtestResults = useStore((s) => s.backtestResults);
   const patternMatches = useStore((s) => s.patternMatches);
   const [expandedTrade, setExpandedTrade] = useState<string | null>(null);
 
-  const tabs = PANEL_TABS[activeMode];
+  const tabs = appMode === "playground" ? PLAYGROUND_TABS : PANEL_TABS[activeMode];
+
+  // Reset active tab when mode changes to avoid out-of-range index
+  useEffect(() => {
+    setActiveTab(0);
+  }, [appMode, activeMode]);
 
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -108,7 +120,12 @@ export function BottomPanel() {
       {/* Content */}
       {!collapsed && (
         <div className="flex-1 overflow-auto">
-          {tabs[activeTab] === "Pine Script" ? (
+          {appMode === "playground" ? (
+            activeTab === 0 ? <PositionsTab /> :
+            activeTab === 1 ? <OrdersTab /> :
+            activeTab === 2 ? <TradeHistoryTab /> :
+            activeTab === 3 ? <WalletTab /> : null
+          ) : tabs[activeTab] === "Pine Script" ? (
             <PineScriptPanel />
           ) : activeMode === "strategy" && activeTab === 0 ? (
             <PortfolioAnalysis />
