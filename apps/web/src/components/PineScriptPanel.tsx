@@ -133,7 +133,7 @@ export function PineScriptPanel() {
         }
 
         setStatus("error");
-        setErrorMsg(`PineTS: ${errMsg}. AI conversion also failed.`);
+        setErrorMsg(`PineTS: ${errorMsg}. AI conversion also failed.`);
         return;
       }
 

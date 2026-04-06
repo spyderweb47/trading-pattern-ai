@@ -222,7 +222,7 @@ export const useStore = create<AppState>((set) => ({
   toggleIndicator: (name) =>
     set((state) => {
       const target = state.indicators.find((i) => i.name === name);
-      const isPine = target?.script?.startsWith("__PINE__") || target?._precomputed;
+      const isPine = target?.script?.startsWith("__PINE__") || (target as any)?._precomputed;
       const turningOff = target?.active;
       return {
         indicators: state.indicators.map((ind) =>
