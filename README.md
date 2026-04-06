@@ -5,6 +5,7 @@ AI-powered trading pattern detection, strategy building, and replay-based practi
 ## Demo
 
 <video src="DEMO/final.mp4" controls width="600"></video>
+[![Demo]([https://img.youtube.com/vi/VIDEO_ID/0.jpg](https://i.ytimg.com/vi/SbPuvWp2750/hqdefault.jpg?sqp=-oaymwEnCPYBEIoBSFryq4qpAxkIARUAAIhCGAHYAQHiAQoIGBACGAY4AUAB&rs=AOn4CLBQujn_dzBCSm8AzOmDeyiTuPRedg))](https://www.youtube.com/watch?v=SbPuvWp2750)
 
 ## Features
 
