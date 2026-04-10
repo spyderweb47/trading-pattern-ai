@@ -3,58 +3,62 @@
 @theme inline {
   --color-background: var(--bg);
   --color-foreground: var(--fg);
-  --font-sans: var(--font-chakra), sans-serif;
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter), "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", "SF Mono", monospace;
 }
 
-/* ─── Light Mode (default) ─── */
+/* ─── Light Mode (Topstep-inspired light) ─── */
 :root {
-  --bg: #fafafa;
-  --fg: #1a1a2e;
+  --bg: #f7f7f8;
+  --fg: #0b0b0f;
   --surface: #ffffff;
-  --surface-2: #f5f5f7;
-  --border: #e5e5ea;
-  --border-subtle: #f0f0f3;
-  --text-primary: #1a1a2e;
-  --text-secondary: #6b7280;
-  --text-tertiary: #9ca3af;
-  --text-muted: #c4c4cc;
-  --accent: #6366f1;
-  --accent-hover: #4f46e5;
-  --success: #10b981;
-  --danger: #ef4444;
-  --warning: #f59e0b;
-  --chat-user-bg: #f0f0f3;
+  --surface-2: #f2f2f4;
+  --surface-3: #e8e8ec;
+  --border: #e2e2e6;
+  --border-subtle: #ededf0;
+  --text-primary: #0b0b0f;
+  --text-secondary: #52525b;
+  --text-tertiary: #8b8b93;
+  --text-muted: #b8b8bf;
+  --accent: #ff6b00;
+  --accent-hover: #e25c00;
+  --accent-soft: rgba(255, 107, 0, 0.12);
+  --success: #00b67a;
+  --danger: #ff3b3b;
+  --warning: #ffb020;
+  --chat-user-bg: #f2f2f4;
   --chat-agent-bg: #ffffff;
-  --chat-agent-border: #e5e5ea;
-  --scrollbar-track: #f5f5f7;
-  --scrollbar-thumb: #d1d5db;
-  --scrollbar-hover: #9ca3af;
+  --chat-agent-border: #e2e2e6;
+  --scrollbar-track: #f2f2f4;
+  --scrollbar-thumb: #c8c8ce;
+  --scrollbar-hover: #9b9ba3;
 }
 
-/* ─── Dark Mode (TradingView style — true black) ─── */
+/* ─── Dark Mode (Topstep-inspired — deep black + signature orange) ─── */
 html.dark {
-  --bg: #0c0d13;
-  --fg: #e0e3eb;
-  --surface: #131722;
-  --surface-2: #1c2030;
-  --border: #1e222d;
-  --border-subtle: #171b26;
-  --text-primary: #e0e3eb;
-  --text-secondary: #b2b5be;
-  --text-tertiary: #787b86;
-  --text-muted: #434651;
-  --accent: #2962ff;
-  --accent-hover: #1e53e5;
-  --success: #26a69a;
-  --danger: #ef5350;
-  --warning: #ff9800;
-  --chat-user-bg: #1c2030;
-  --chat-agent-bg: #131722;
-  --chat-agent-border: #1e222d;
-  --scrollbar-track: #131722;
-  --scrollbar-thumb: #2a2e39;
-  --scrollbar-hover: #3c4050;
+  --bg: #050507;
+  --fg: #f4f4f5;
+  --surface: #0d0d10;
+  --surface-2: #17171c;
+  --surface-3: #222228;
+  --border: #26262e;
+  --border-subtle: #1b1b21;
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #71717a;
+  --text-muted: #52525b;
+  --accent: #ff6b00;
+  --accent-hover: #ff8420;
+  --accent-soft: rgba(255, 107, 0, 0.15);
+  --success: #00d68f;
+  --danger: #ff4d4d;
+  --warning: #ffb020;
+  --chat-user-bg: #17171c;
+  --chat-agent-bg: #0d0d10;
+  --chat-agent-border: #26262e;
+  --scrollbar-track: #0d0d10;
+  --scrollbar-thumb: #2d2d35;
+  --scrollbar-hover: #40404a;
 }
 
 body {
@@ -63,7 +67,18 @@ body {
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.5;
+  font-feature-settings: "cv11", "ss01", "ss03";
+  letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Tabular numerals for all prices, PnL, quantities */
+.tabular,
+input[type="number"],
+.font-mono {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
 
 /* ─── Scrollbar ─── */

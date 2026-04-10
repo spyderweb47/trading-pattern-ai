@@ -24,7 +24,23 @@ export default function Home() {
   const displayedData = chartData;
   const rootRef = useRef<HTMLDivElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(320);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(false);
   const sidebarDrag = useRef({ active: false, startX: 0, startW: 0 });
+
+  // Track viewport width — auto-collapse sidebar on narrow screens
+  useEffect(() => {
+    const checkWidth = () => {
+      const w = window.innerWidth;
+      const narrow = w < 900;
+      setIsNarrow(narrow);
+      if (narrow && !sidebarCollapsed) setSidebarCollapsed(true);
+    };
+    checkWidth();
+    window.addEventListener("resize", checkWidth);
+    return () => window.removeEventListener("resize", checkWidth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onSidebarResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -57,12 +73,19 @@ export default function Home() {
     return () => el.removeEventListener("scroll", handler);
   }, []);
 
+  const toggleSidebar = () => {
+    setSidebarCollapsed((v) => !v);
+    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+  };
+
+  const effectiveSidebarWidth = sidebarCollapsed ? 0 : sidebarWidth;
+
   return (
-    <div ref={rootRef} className="flex h-screen overflow-hidden" style={{ background: "var(--bg)" }}>
+    <div ref={rootRef} className="flex h-screen overflow-hidden relative" style={{ background: "var(--bg)" }}>
       {/* Center Content */}
       <div className="flex flex-1 flex-col min-w-0">
         {/* Top Bar */}
-        <TopBar />
+        <TopBar onToggleSidebar={toggleSidebar} sidebarCollapsed={sidebarCollapsed} />
 
         {/* Timeframe selector */}
         <TimeframeSelector />
@@ -82,15 +105,36 @@ export default function Home() {
         <BottomPanel />
       </div>
 
-      {/* Right Sidebar with resize handle */}
-      <div className="flex shrink-0" style={{ width: sidebarWidth }}>
+      {/* Backdrop for sidebar overlay on narrow screens */}
+      {isNarrow && !sidebarCollapsed && (
         <div
-          onMouseDown={onSidebarResizeStart}
-          className="w-1 cursor-ew-resize hover:bg-[var(--accent)] transition-colors shrink-0"
+          onClick={toggleSidebar}
+          className="absolute inset-0 z-30 transition-opacity"
+          style={{ background: "rgba(0,0,0,0.5)" }}
         />
-        <div className="flex-1 min-w-0">
-          <RightSidebar />
-        </div>
+      )}
+
+      {/* Right Sidebar with resize handle */}
+      <div
+        className={`flex shrink-0 transition-[width] duration-200 ease-out ${
+          isNarrow ? "absolute right-0 top-0 h-full z-40 shadow-2xl" : ""
+        }`}
+        style={{
+          width: effectiveSidebarWidth,
+          background: "var(--surface)",
+        }}
+      >
+        {!sidebarCollapsed && !isNarrow && (
+          <div
+            onMouseDown={onSidebarResizeStart}
+            className="w-1 cursor-ew-resize hover:bg-[var(--accent)] transition-colors shrink-0"
+          />
+        )}
+        {!sidebarCollapsed && (
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <RightSidebar />
+          </div>
+        )}
       </div>
     </div>
   );
