@@ -15,20 +15,17 @@ interface HighlightBox {
   x2: number;
   y1: number;
   y2: number;
-  splitX: number;
   label: string;
   confidence: number;
   direction: "bullish" | "bearish" | "neutral";
 }
 
-const TRIGGER_FILL = "rgba(59, 130, 246, 0.07)";
-const TRIGGER_BORDER = "rgba(59, 130, 246, 0.35)";
-const TRADE_BULLISH_FILL = "rgba(34, 197, 94, 0.10)";
-const TRADE_BULLISH_BORDER = "rgba(34, 197, 94, 0.45)";
-const TRADE_BEARISH_FILL = "rgba(239, 68, 68, 0.10)";
-const TRADE_BEARISH_BORDER = "rgba(239, 68, 68, 0.45)";
-const TRADE_NEUTRAL_FILL = "rgba(255, 107, 0, 0.10)";
-const TRADE_NEUTRAL_BORDER = "rgba(255, 107, 0, 0.45)";
+const BULLISH_FILL = "rgba(34, 197, 94, 0.10)";
+const BULLISH_BORDER = "rgba(34, 197, 94, 0.55)";
+const BEARISH_FILL = "rgba(239, 68, 68, 0.10)";
+const BEARISH_BORDER = "rgba(239, 68, 68, 0.55)";
+const NEUTRAL_FILL = "rgba(255, 107, 0, 0.10)";
+const NEUTRAL_BORDER = "rgba(255, 107, 0, 0.55)";
 
 class HighlightRenderer implements IPrimitivePaneRenderer {
   private _boxes: HighlightBox[] = [];
@@ -46,84 +43,34 @@ class HighlightRenderer implements IPrimitivePaneRenderer {
         const h = y2 - y1;
         if (w < 4 || h < 4) continue;
 
-        const splitX = Math.max(x1 + 2, Math.min(box.splitX, x2 - 2));
-        const triggerW = splitX - x1;
-        const tradeW = x2 - splitX;
         const dir = box.direction;
+        const fill = dir === "bullish" ? BULLISH_FILL : dir === "bearish" ? BEARISH_FILL : NEUTRAL_FILL;
+        const border = dir === "bullish" ? BULLISH_BORDER : dir === "bearish" ? BEARISH_BORDER : NEUTRAL_BORDER;
 
-        // === TRIGGER ZONE (left — blue) ===
-        ctx.fillStyle = TRIGGER_FILL;
-        ctx.fillRect(x1, y1, triggerW, h);
-        ctx.strokeStyle = TRIGGER_BORDER;
+        // Single pattern box
+        ctx.fillStyle = fill;
+        ctx.fillRect(x1, y1, w, h);
+        ctx.strokeStyle = border;
         ctx.lineWidth = 1.5;
         ctx.setLineDash([]);
-        ctx.strokeRect(x1, y1, triggerW, h);
+        ctx.strokeRect(x1, y1, w, h);
 
-        // === TRADE ZONE (right — colored) ===
-        ctx.fillStyle = dir === "bullish" ? TRADE_BULLISH_FILL
-          : dir === "bearish" ? TRADE_BEARISH_FILL : TRADE_NEUTRAL_FILL;
-        ctx.fillRect(splitX, y1, tradeW, h);
-        ctx.strokeStyle = dir === "bullish" ? TRADE_BULLISH_BORDER
-          : dir === "bearish" ? TRADE_BEARISH_BORDER : TRADE_NEUTRAL_BORDER;
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(splitX, y1, tradeW, h);
-
-        // === SPLIT LINE (dashed) ===
-        ctx.strokeStyle = "rgba(100, 116, 139, 0.5)";
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([4, 3]);
-        ctx.beginPath();
-        ctx.moveTo(splitX, y1);
-        ctx.lineTo(splitX, y2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // === CONNECTOR ARROW at split point ===
-        const midY = (y1 + y2) / 2;
-        ctx.fillStyle = "rgba(100, 116, 139, 0.6)";
-        ctx.beginPath();
-        ctx.moveTo(splitX - 4, midY - 5);
-        ctx.lineTo(splitX + 4, midY);
-        ctx.lineTo(splitX - 4, midY + 5);
-        ctx.closePath();
-        ctx.fill();
-
-        // === LABELS ===
-        ctx.font = "bold 8px 'Chakra Petch', sans-serif";
+        // Label with confidence
+        ctx.font = "bold 9px 'Inter', sans-serif";
         ctx.textBaseline = "top";
         ctx.textAlign = "left";
-
-        // Trigger label (top-left of trigger zone)
-        if (triggerW > 35) {
-          ctx.fillStyle = TRIGGER_BORDER;
-          ctx.fillText("TRIGGER", x1 + 3, y1 + 3);
+        ctx.fillStyle = border;
+        const pct = Math.round(box.confidence * 100);
+        if (w > 40) {
+          ctx.fillText(`PATTERN ${pct}%`, x1 + 4, y1 + 4);
         }
 
-        // Trade label with confidence (top-left of trade zone)
-        const tradeBorderColor = dir === "bullish" ? TRADE_BULLISH_BORDER
-          : dir === "bearish" ? TRADE_BEARISH_BORDER : TRADE_NEUTRAL_BORDER;
-        if (tradeW > 25) {
-          ctx.fillStyle = tradeBorderColor;
-          const pct = Math.round(box.confidence * 100);
-          ctx.fillText(`TRADE ${pct}%`, splitX + 3, y1 + 3);
-        }
-
-        // Direction arrow at bottom of trade zone
-        ctx.font = "bold 10px 'Chakra Petch', sans-serif";
+        // Direction arrow at bottom-right
+        ctx.font = "bold 11px 'Inter', sans-serif";
         ctx.textBaseline = "bottom";
         ctx.textAlign = "right";
-        ctx.fillStyle = tradeBorderColor;
         const arrow = dir === "bullish" ? "\u25B2" : dir === "bearish" ? "\u25BC" : "\u25C6";
-        ctx.fillText(arrow, x2 - 3, y2 - 3);
-
-        // Entry/Exit markers on split line
-        ctx.font = "bold 7px 'Chakra Petch', sans-serif";
-        ctx.fillStyle = "rgba(100, 116, 139, 0.7)";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "bottom";
-        ctx.fillText("ENTRY", splitX, y1 - 2);
-        ctx.textBaseline = "top";
-        ctx.fillText("EXIT", x2, y2 + 2);
+        ctx.fillText(arrow, x2 - 4, y2 - 4);
       }
     });
   }
@@ -136,11 +83,6 @@ class HighlightPaneView implements IPrimitivePaneView {
   update(boxes: HighlightBox[]) { this._renderer.update(boxes); }
   zOrder(): "bottom" { return "bottom"; }
   renderer(): IPrimitivePaneRenderer { return this._renderer; }
-}
-
-let _triggerRatio = 0.6;
-export function setTriggerRatio(ratio: number) {
-  _triggerRatio = Math.max(0.1, Math.min(0.9, ratio));
 }
 
 export class PatternHighlightPrimitive implements ISeriesPrimitive<Time> {
@@ -220,9 +162,7 @@ export class PatternHighlightPrimitive implements ISeriesPrimitive<Time> {
       const y2 = series.priceToCoordinate(minPrice);
       if (x1 == null || x2 == null || y1 == null || y2 == null) continue;
 
-      const splitX = x1 + (x2 - x1) * _triggerRatio;
-
-      boxes.push({ x1, x2, y1, y2, splitX, label: m.name, confidence: m.confidence, direction: m.direction });
+      boxes.push({ x1, x2, y1, y2, label: m.name, confidence: m.confidence, direction: m.direction });
     }
 
     this._paneView.update(boxes);

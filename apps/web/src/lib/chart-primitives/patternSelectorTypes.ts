@@ -7,23 +7,18 @@ export interface BoxBounds {
   bottomPrice: number;
 }
 
-export type DrawingPhase = "idle" | "trigger" | "trade";
+export type DrawingPhase = "idle" | "pattern";
 
 export type DragHandle =
-  | "trigger-body"
-  | "trigger-left"
-  | "trigger-right"
-  | "trigger-top"
-  | "trigger-bottom"
-  | "trade-body"
-  | "trade-right"
-  | "trade-top"
-  | "trade-bottom"
+  | "pattern-body"
+  | "pattern-left"
+  | "pattern-right"
+  | "pattern-top"
+  | "pattern-bottom"
   | null;
 
 export interface PatternSelectorState {
-  triggerBox: BoxBounds | null;
-  tradeBox: BoxBounds | null;
+  patternBox: BoxBounds | null;
   drawingPhase: DrawingPhase;
 }
 

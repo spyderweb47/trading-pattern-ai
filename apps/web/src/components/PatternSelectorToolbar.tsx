@@ -11,8 +11,7 @@ interface Props {
 
 const phaseText: Record<DrawingPhase, string> = {
   idle: "",
-  trigger: "Drag to select pattern area",
-  trade: "Now drag to mark the trade zone",
+  pattern: "Drag to select the pattern region",
 };
 
 export function PatternSelectorToolbar({

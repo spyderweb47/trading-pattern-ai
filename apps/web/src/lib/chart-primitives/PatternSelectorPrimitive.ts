@@ -16,86 +16,63 @@ import type {
   DrawingPhase,
 } from "./patternSelectorTypes";
 
-const TRIGGER_FILL = "rgba(59, 130, 246, 0.12)";
-const TRIGGER_BORDER = "rgba(59, 130, 246, 0.7)";
-const TRADE_FILL = "rgba(34, 197, 94, 0.12)";
-const TRADE_BORDER = "rgba(34, 197, 94, 0.7)";
+// Topstep orange accent for the pattern box
+const PATTERN_FILL = "rgba(255, 107, 0, 0.12)";
+const PATTERN_BORDER = "rgba(255, 107, 0, 0.85)";
 const HANDLE_SIZE = 5;
 const EDGE_TOLERANCE = 6;
 
 class PatternSelectorRenderer implements IPrimitivePaneRenderer {
-  private _triggerPx: PixelBox | null = null;
-  private _tradePx: PixelBox | null = null;
+  private _patternPx: PixelBox | null = null;
 
-  update(triggerPx: PixelBox | null, tradePx: PixelBox | null) {
-    this._triggerPx = triggerPx;
-    this._tradePx = tradePx;
+  update(patternPx: PixelBox | null) {
+    this._patternPx = patternPx;
   }
 
   draw(target: CanvasRenderingTarget2D): void {
     target.useMediaCoordinateSpace(({ context: ctx }) => {
-      if (this._triggerPx) this._drawBox(ctx, this._triggerPx, TRIGGER_FILL, TRIGGER_BORDER, "TRIGGER");
-      if (this._tradePx) this._drawBox(ctx, this._tradePx, TRADE_FILL, TRADE_BORDER, "TRADE");
+      if (this._patternPx) this._drawBox(ctx, this._patternPx);
     });
   }
 
-  private _drawBox(
-    ctx: CanvasRenderingContext2D,
-    box: PixelBox,
-    fill: string,
-    border: string,
-    label: string
-  ) {
+  private _drawBox(ctx: CanvasRenderingContext2D, box: PixelBox) {
     const x = Math.min(box.x1, box.x2);
     const y = Math.min(box.y1, box.y2);
     const w = Math.abs(box.x2 - box.x1);
     const h = Math.abs(box.y2 - box.y1);
 
     // Fill
-    ctx.fillStyle = fill;
+    ctx.fillStyle = PATTERN_FILL;
     ctx.fillRect(x, y, w, h);
 
     // Border
-    ctx.strokeStyle = border;
+    ctx.strokeStyle = PATTERN_BORDER;
     ctx.lineWidth = 1.5;
     ctx.setLineDash([]);
     ctx.strokeRect(x, y, w, h);
 
     // Label
-    ctx.fillStyle = border;
-    ctx.font = "bold 9px 'Chakra Petch', sans-serif";
+    ctx.fillStyle = PATTERN_BORDER;
+    ctx.font = "bold 9px 'Inter', sans-serif";
     ctx.textBaseline = "top";
-    ctx.fillText(label, x + 4, y + 4);
+    ctx.textAlign = "left";
+    ctx.fillText("PATTERN", x + 4, y + 4);
 
     // Corner handles
     const hs = HANDLE_SIZE;
-    ctx.fillStyle = border;
-    // top-left, top-right, bottom-left, bottom-right
+    ctx.fillStyle = PATTERN_BORDER;
     ctx.fillRect(x - hs / 2, y - hs / 2, hs, hs);
     ctx.fillRect(x + w - hs / 2, y - hs / 2, hs, hs);
     ctx.fillRect(x - hs / 2, y + h - hs / 2, hs, hs);
     ctx.fillRect(x + w - hs / 2, y + h - hs / 2, hs, hs);
-
-    // Entry / exit labels for trade box
-    if (label === "TRADE") {
-      ctx.font = "bold 8px 'Chakra Petch', sans-serif";
-      ctx.fillStyle = TRADE_BORDER;
-      const midY = y + h / 2;
-      ctx.textBaseline = "middle";
-      ctx.textAlign = "left";
-      ctx.fillText("ENTRY", x + 4, midY);
-      ctx.textAlign = "right";
-      ctx.fillText("EXIT", x + w - 4, midY);
-      ctx.textAlign = "left";
-    }
   }
 }
 
 class PatternSelectorPaneView implements IPrimitivePaneView {
   _renderer = new PatternSelectorRenderer();
 
-  update(triggerPx: PixelBox | null, tradePx: PixelBox | null) {
-    this._renderer.update(triggerPx, tradePx);
+  update(patternPx: PixelBox | null) {
+    this._renderer.update(patternPx);
   }
 
   zOrder(): "top" {
@@ -114,12 +91,10 @@ export class PatternSelectorPrimitive implements ISeriesPrimitive<Time> {
   private _paneView = new PatternSelectorPaneView();
 
   // Logical bounds
-  private _triggerBox: BoxBounds | null = null;
-  private _tradeBox: BoxBounds | null = null;
+  private _patternBox: BoxBounds | null = null;
 
   // Pixel bounds (cached)
-  private _triggerPx: PixelBox | null = null;
-  private _tradePx: PixelBox | null = null;
+  private _patternPx: PixelBox | null = null;
 
   // Interaction state
   private _drawingPhase: DrawingPhase = "idle";
@@ -131,14 +106,14 @@ export class PatternSelectorPrimitive implements ISeriesPrimitive<Time> {
   private _dragOrigBox: BoxBounds | null = null;
 
   // Callbacks
-  private _onChange: ((trigger: BoxBounds | null, trade: BoxBounds | null) => void) | null = null;
+  private _onChange: ((pattern: BoxBounds | null) => void) | null = null;
 
-  setOnChange(fn: (trigger: BoxBounds | null, trade: BoxBounds | null) => void) {
+  setOnChange(fn: (pattern: BoxBounds | null) => void) {
     this._onChange = fn;
   }
 
   private _notifyChange() {
-    this._onChange?.(this._triggerBox, this._tradeBox);
+    this._onChange?.(this._patternBox);
   }
 
   attached(param: SeriesAttachedParameter<Time, "Candlestick">) {
@@ -155,8 +130,7 @@ export class PatternSelectorPrimitive implements ISeriesPrimitive<Time> {
 
   // --- Public API ---
 
-  get triggerBox() { return this._triggerBox; }
-  get tradeBox() { return this._tradeBox; }
+  get patternBox() { return this._patternBox; }
   get drawingPhase() { return this._drawingPhase; }
 
   setDrawingPhase(phase: DrawingPhase) {
@@ -164,12 +138,10 @@ export class PatternSelectorPrimitive implements ISeriesPrimitive<Time> {
   }
 
   clear() {
-    this._triggerBox = null;
-    this._tradeBox = null;
-    this._triggerPx = null;
-    this._tradePx = null;
+    this._patternBox = null;
+    this._patternPx = null;
     this._drawingPhase = "idle";
-    this._paneView.update(null, null);
+    this._paneView.update(null);
     this._requestUpdate?.();
     this._notifyChange();
   }
@@ -204,9 +176,8 @@ export class PatternSelectorPrimitive implements ISeriesPrimitive<Time> {
   // --- Lifecycle ---
 
   updateAllViews() {
-    this._triggerPx = this._triggerBox ? this._boundsToPixels(this._triggerBox) : null;
-    this._tradePx = this._tradeBox ? this._boundsToPixels(this._tradeBox) : null;
-    this._paneView.update(this._triggerPx, this._tradePx);
+    this._patternPx = this._patternBox ? this._boundsToPixels(this._patternBox) : null;
+    this._paneView.update(this._patternPx);
   }
 
   paneViews(): readonly IPrimitivePaneView[] {
@@ -222,15 +193,11 @@ export class PatternSelectorPrimitive implements ISeriesPrimitive<Time> {
     if (!handle) return null;
 
     const cursorMap: Record<string, string> = {
-      "trigger-body": "grab",
-      "trigger-left": "ew-resize",
-      "trigger-right": "ew-resize",
-      "trigger-top": "ns-resize",
-      "trigger-bottom": "ns-resize",
-      "trade-body": "grab",
-      "trade-right": "ew-resize",
-      "trade-top": "ns-resize",
-      "trade-bottom": "ns-resize",
+      "pattern-body": "grab",
+      "pattern-left": "ew-resize",
+      "pattern-right": "ew-resize",
+      "pattern-top": "ns-resize",
+      "pattern-bottom": "ns-resize",
     };
 
     return {
@@ -241,24 +208,11 @@ export class PatternSelectorPrimitive implements ISeriesPrimitive<Time> {
   }
 
   private _getHandle(x: number, y: number): DragHandle {
-    // Check trade box first (drawn on top)
-    if (this._tradePx) {
-      const h = this._hitTestBox(x, y, this._tradePx, "trade");
-      if (h) return h;
-    }
-    if (this._triggerPx) {
-      const h = this._hitTestBox(x, y, this._triggerPx, "trigger");
-      if (h) return h;
-    }
-    return null;
+    if (!this._patternPx) return null;
+    return this._hitTestBox(x, y, this._patternPx);
   }
 
-  private _hitTestBox(
-    x: number,
-    y: number,
-    box: PixelBox,
-    prefix: "trigger" | "trade"
-  ): DragHandle {
+  private _hitTestBox(x: number, y: number, box: PixelBox): DragHandle {
     const bx = Math.min(box.x1, box.x2);
     const by = Math.min(box.y1, box.y2);
     const bw = Math.abs(box.x2 - box.x1);
@@ -266,20 +220,13 @@ export class PatternSelectorPrimitive implements ISeriesPrimitive<Time> {
     const t = EDGE_TOLERANCE;
 
     // Edges
-    if (prefix === "trigger" && Math.abs(x - bx) < t && y >= by - t && y <= by + bh + t)
-      return "trigger-left";
-    if (prefix === "trigger" && Math.abs(x - (bx + bw)) < t && y >= by - t && y <= by + bh + t)
-      return "trigger-right";
-    if (prefix === "trade" && Math.abs(x - (bx + bw)) < t && y >= by - t && y <= by + bh + t)
-      return "trade-right";
-    if (Math.abs(y - by) < t && x >= bx - t && x <= bx + bw + t)
-      return `${prefix}-top` as DragHandle;
-    if (Math.abs(y - (by + bh)) < t && x >= bx - t && x <= bx + bw + t)
-      return `${prefix}-bottom` as DragHandle;
+    if (Math.abs(x - bx) < t && y >= by - t && y <= by + bh + t) return "pattern-left";
+    if (Math.abs(x - (bx + bw)) < t && y >= by - t && y <= by + bh + t) return "pattern-right";
+    if (Math.abs(y - by) < t && x >= bx - t && x <= bx + bw + t) return "pattern-top";
+    if (Math.abs(y - (by + bh)) < t && x >= bx - t && x <= bx + bw + t) return "pattern-bottom";
 
     // Body
-    if (x >= bx && x <= bx + bw && y >= by && y <= by + bh)
-      return `${prefix}-body` as DragHandle;
+    if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) return "pattern-body";
 
     return null;
   }
@@ -287,13 +234,13 @@ export class PatternSelectorPrimitive implements ISeriesPrimitive<Time> {
   // --- Mouse Interaction ---
 
   onMouseDown(x: number, y: number): boolean {
-    if (this._drawingPhase === "trigger") {
+    if (this._drawingPhase === "pattern") {
       const time = this._xToTime(x);
       const price = this._yToPrice(y);
       if (time && price !== null) {
         this._anchorTime = time;
         this._anchorPrice = price;
-        this._triggerBox = {
+        this._patternBox = {
           startTime: time,
           endTime: time,
           topPrice: price,
@@ -303,31 +250,14 @@ export class PatternSelectorPrimitive implements ISeriesPrimitive<Time> {
       return true;
     }
 
-    if (this._drawingPhase === "trade" && this._triggerBox) {
-      const price = this._yToPrice(y);
-      if (price !== null) {
-        this._anchorPrice = price;
-        this._tradeBox = {
-          startTime: this._triggerBox.endTime,
-          endTime: this._triggerBox.endTime,
-          topPrice: price,
-          bottomPrice: price,
-        };
-      }
-      return true;
-    }
-
-    // Check for drag/resize
+    // Check for drag/resize when idle
     if (this._drawingPhase === "idle") {
       const handle = this._getHandle(x, y);
       if (handle) {
         this._dragHandle = handle;
         this._dragStartX = x;
         this._dragStartY = y;
-        const isT = handle.startsWith("trigger");
-        this._dragOrigBox = isT
-          ? this._triggerBox ? { ...this._triggerBox } : null
-          : this._tradeBox ? { ...this._tradeBox } : null;
+        this._dragOrigBox = this._patternBox ? { ...this._patternBox } : null;
         return true;
       }
     }
@@ -336,30 +266,13 @@ export class PatternSelectorPrimitive implements ISeriesPrimitive<Time> {
   }
 
   onMouseMove(x: number, y: number): boolean {
-    if (this._drawingPhase === "trigger" && this._anchorTime && this._anchorPrice !== null) {
+    if (this._drawingPhase === "pattern" && this._anchorTime && this._anchorPrice !== null) {
       const time = this._xToTime(x);
       const price = this._yToPrice(y);
       if (time && price !== null) {
-        this._triggerBox = {
-          startTime: this._anchorTime < time ? this._anchorTime : time,
-          endTime: this._anchorTime < time ? time : this._anchorTime,
-          topPrice: Math.max(this._anchorPrice, price),
-          bottomPrice: Math.min(this._anchorPrice, price),
-        };
-        this.updateAllViews();
-        this._requestUpdate?.();
-      }
-      return true;
-    }
-
-    if (this._drawingPhase === "trade" && this._tradeBox && this._anchorPrice !== null) {
-      const time = this._xToTime(x);
-      const price = this._yToPrice(y);
-      if (time && price !== null && this._triggerBox) {
-        const endTime = time > this._triggerBox.endTime ? time : this._triggerBox.endTime;
-        this._tradeBox = {
-          startTime: this._triggerBox.endTime,
-          endTime,
+        this._patternBox = {
+          startTime: (this._anchorTime as number) < (time as number) ? this._anchorTime : time,
+          endTime: (this._anchorTime as number) < (time as number) ? time : this._anchorTime,
           topPrice: Math.max(this._anchorPrice, price),
           bottomPrice: Math.min(this._anchorPrice, price),
         };
@@ -383,15 +296,7 @@ export class PatternSelectorPrimitive implements ISeriesPrimitive<Time> {
   }
 
   onMouseUp(): boolean {
-    if (this._drawingPhase === "trigger" && this._triggerBox) {
-      this._drawingPhase = "trade";
-      this._anchorTime = null;
-      this._anchorPrice = null;
-      this._notifyChange();
-      return true;
-    }
-
-    if (this._drawingPhase === "trade" && this._tradeBox) {
+    if (this._drawingPhase === "pattern" && this._patternBox) {
       this._drawingPhase = "idle";
       this._anchorTime = null;
       this._anchorPrice = null;
@@ -410,69 +315,38 @@ export class PatternSelectorPrimitive implements ISeriesPrimitive<Time> {
   }
 
   private _applyDrag(dx: number, dy: number) {
-    if (!this._dragHandle || !this._dragOrigBox) return;
+    if (!this._dragHandle || !this._dragOrigBox || !this._patternBox) return;
 
     const orig = this._dragOrigBox;
     const handle = this._dragHandle;
 
-    // Convert pixel deltas to time/price deltas approximately
     const pricePerPx = this._estimatePricePerPixel();
-    const dPrice = -dy * pricePerPx; // negative because y increases downward
+    const dPrice = -dy * pricePerPx;
 
-    if (handle === "trigger-body" && this._triggerBox) {
+    if (handle === "pattern-body") {
       const timeShift = this._estimateTimeShift(dx);
-      this._triggerBox = {
+      this._patternBox = {
         startTime: this._shiftTime(orig.startTime, timeShift),
         endTime: this._shiftTime(orig.endTime, timeShift),
         topPrice: orig.topPrice + dPrice,
         bottomPrice: orig.bottomPrice + dPrice,
       };
-      // Move trade box too
-      if (this._tradeBox) {
-        this._tradeBox = {
-          ...this._tradeBox,
-          startTime: this._triggerBox.endTime,
-        };
-      }
-    } else if (handle === "trade-body" && this._tradeBox) {
+    } else if (handle === "pattern-left") {
       const timeShift = this._estimateTimeShift(dx);
-      this._tradeBox = {
-        startTime: orig.startTime, // locked to trigger
-        endTime: this._shiftTime(orig.endTime, timeShift),
-        topPrice: orig.topPrice + dPrice,
-        bottomPrice: orig.bottomPrice + dPrice,
-      };
-    } else if (handle === "trigger-right" && this._triggerBox) {
-      const timeShift = this._estimateTimeShift(dx);
-      this._triggerBox = {
-        ...this._triggerBox,
-        endTime: this._shiftTime(orig.endTime, timeShift),
-      };
-      if (this._tradeBox) {
-        this._tradeBox = { ...this._tradeBox, startTime: this._triggerBox.endTime };
-      }
-    } else if (handle === "trigger-left" && this._triggerBox) {
-      const timeShift = this._estimateTimeShift(dx);
-      this._triggerBox = {
-        ...this._triggerBox,
+      this._patternBox = {
+        ...this._patternBox,
         startTime: this._shiftTime(orig.startTime, timeShift),
       };
-    } else if (handle === "trade-right" && this._tradeBox) {
+    } else if (handle === "pattern-right") {
       const timeShift = this._estimateTimeShift(dx);
-      this._tradeBox = {
-        ...this._tradeBox,
+      this._patternBox = {
+        ...this._patternBox,
         endTime: this._shiftTime(orig.endTime, timeShift),
       };
-    } else if (handle.endsWith("-top")) {
-      const box = handle.startsWith("trigger") ? this._triggerBox : this._tradeBox;
-      if (box) {
-        (handle.startsWith("trigger") ? this._triggerBox : this._tradeBox)!.topPrice = orig.topPrice + dPrice;
-      }
-    } else if (handle.endsWith("-bottom")) {
-      const box = handle.startsWith("trigger") ? this._triggerBox : this._tradeBox;
-      if (box) {
-        (handle.startsWith("trigger") ? this._triggerBox : this._tradeBox)!.bottomPrice = orig.bottomPrice + dPrice;
-      }
+    } else if (handle === "pattern-top") {
+      this._patternBox = { ...this._patternBox, topPrice: orig.topPrice + dPrice };
+    } else if (handle === "pattern-bottom") {
+      this._patternBox = { ...this._patternBox, bottomPrice: orig.bottomPrice + dPrice };
     }
   }
 

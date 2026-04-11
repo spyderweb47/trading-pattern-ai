@@ -79,15 +79,13 @@ async def chat(req: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-PATTERN_ANALYSIS_PROMPT = """You are a trading pattern analyst. The user selected a region on their chart with a TRIGGER box (setup phase) and a TRADE box (the resulting move).
+PATTERN_ANALYSIS_PROMPT = """You are a trading pattern analyst. The user selected a region on their chart by drawing a single pattern box around it, and the frontend has extracted a mathematical fingerprint of that region.
 
 Analyze the pattern data and explain:
-1. What type of pattern the TRIGGER setup looks like (e.g., bull flag, double bottom, ascending triangle, etc.)
-2. The key characteristics: candle structure, trend, indicator behavior
-3. The TRADE RESULT: what happened after the trigger — the entry/exit, price change %, and whether it was a successful trade
-4. How reliable this pattern typically is and any concerns
-
-IMPORTANT: The goal is to find the trigger setup so the user can predict the trade outcome (the entry and exit after the trigger). Explain how the trigger predicts the trade.
+1. What type of pattern this looks like (e.g., bull flag, double bottom, ascending triangle, head and shoulders, breakout, etc.)
+2. The key characteristics: candle structure, trend direction, indicator behavior
+3. What the pattern typically signals — is it bullish, bearish, or continuation?
+4. How reliable this pattern typically is and any concerns or caveats
 
 Be concise (4-6 sentences). End by asking: "Should I create a detection script for this pattern, or would you like to adjust anything?"
 
@@ -105,8 +103,8 @@ async def _handle_pattern(message: str, context: dict) -> ChatResponse:
     """Handle pattern mode: generate JS pattern or indicator scripts."""
     current_script = context.get("pattern_script", "")
 
-    # Check if this is a pattern fingerprint (contains SHAPE/BOXES data)
-    is_fingerprint = "SHAPE:" in message and ("TRIGGER BOX:" in message or "BOXES:" in message)
+    # Check if this is a pattern fingerprint (contains SHAPE + sliding-window rules)
+    is_fingerprint = "SHAPE:" in message and "Sliding window" in message
 
     # Check if user is confirming to proceed with script creation
     pending_fingerprint = context.get("pending_fingerprint", "")
@@ -139,8 +137,7 @@ async def _handle_pattern(message: str, context: dict) -> ChatResponse:
             )
         else:
             analysis = (
-                "I can see a pattern selection with trigger and trade zones. "
-                "The trigger zone shows the setup phase and the trade zone shows the expected move. "
+                "I can see a pattern selection with a distinct shape and candle structure. "
                 "Should I create a detection script for this pattern?"
             )
 

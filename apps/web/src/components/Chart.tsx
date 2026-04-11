@@ -21,7 +21,7 @@ import { executeIndicatorScript } from "@/lib/scriptExecutor";
 import { extractFingerprint } from "@/lib/patternFingerprint";
 import { PatternSelectorPrimitive } from "@/lib/chart-primitives/PatternSelectorPrimitive";
 import { DrawingToolsPrimitive } from "@/lib/chart-primitives/DrawingToolsPrimitive";
-import { PatternHighlightPrimitive, setTriggerRatio } from "@/lib/chart-primitives/PatternHighlightPrimitive";
+import { PatternHighlightPrimitive } from "@/lib/chart-primitives/PatternHighlightPrimitive";
 import { PineDrawingsPrimitive } from "@/lib/chart-primitives/PineDrawingsPrimitive";
 import { TradeBoxPrimitive } from "@/lib/chart-primitives/TradeBoxPrimitive";
 import type { DrawingPhase } from "@/lib/chart-primitives/patternSelectorTypes";
@@ -138,8 +138,8 @@ export function Chart({
 
     // Pattern selector primitive
     const primitive = new PatternSelectorPrimitive();
-    primitive.setOnChange((trigger, trade) => {
-      setHasSelection(!!(trigger && trade));
+    primitive.setOnChange((pattern) => {
+      setHasSelection(!!pattern);
       setDrawingPhase(primitive.drawingPhase);
     });
     series.attachPrimitive(primitive);
@@ -304,7 +304,7 @@ export function Chart({
       if (tool === "pattern_select") {
         if (primitive.onMouseUp()) {
           setDrawingPhase(primitive.drawingPhase);
-          setHasSelection(!!(primitive.triggerBox && primitive.tradeBox));
+          setHasSelection(!!primitive.patternBox);
           el.releasePointerCapture(e.pointerId || 0);
         }
         return;
@@ -315,7 +315,7 @@ export function Chart({
       }
       if (primitive.onMouseUp()) {
         setDrawingPhase(primitive.drawingPhase);
-        setHasSelection(!!(primitive.triggerBox && primitive.tradeBox));
+        setHasSelection(!!primitive.patternBox);
         el.releasePointerCapture(e.pointerId || 0);
       }
     };
@@ -669,8 +669,8 @@ export function Chart({
       // Activate pattern selector, deactivate drawing tools
       p.setActiveTool(null);
       ps.clear();
-      ps.setDrawingPhase("trigger");
-      setDrawingPhase("trigger");
+      ps.setDrawingPhase("pattern");
+      setDrawingPhase("pattern");
       setHasSelection(false);
       chartRef.current?.applyOptions({
         crosshair: { vertLine: { visible: false }, horzLine: { visible: false } },
@@ -764,14 +764,13 @@ export function Chart({
 
   // --- Pattern Selector handlers ---
 
-  // Get selected bars from BOTH trigger and trade boxes
+  // Get selected bars from the single pattern box
   const getSelectedBars = useCallback(() => {
     const p = patternPrimitiveRef.current;
-    if (!p || !p.triggerBox) return null;
-    const tb = p.triggerBox;
-    const tr = p.tradeBox;
-    const startT = tb.startTime as number;
-    const endT = tr ? (tr.endTime as number) : (tb.endTime as number);
+    if (!p || !p.patternBox) return null;
+    const pb = p.patternBox;
+    const startT = pb.startTime as number;
+    const endT = pb.endTime as number;
     const bars = data.filter(
       (b) => (b.time as number) >= startT && (b.time as number) <= endT
     );
@@ -804,11 +803,10 @@ export function Chart({
         const prim = patternPrimitiveRef.current;
         const chart = chartRef.current;
         const series = seriesRef.current;
-        if (prim?.triggerBox && chart && series && allCanvases.length > 0) {
+        if (prim?.patternBox && chart && series && allCanvases.length > 0) {
           const ts = chart.timeScale();
-          const x1 = ts.timeToCoordinate(prim.triggerBox.startTime);
-          const tradeEnd = prim.tradeBox ? prim.tradeBox.endTime : prim.triggerBox.endTime;
-          const x2 = ts.timeToCoordinate(tradeEnd);
+          const x1 = ts.timeToCoordinate(prim.patternBox.startTime);
+          const x2 = ts.timeToCoordinate(prim.patternBox.endTime);
           const allPrices = bars.flatMap(b => [b.high, b.low]);
           const maxP = Math.max(...allPrices);
           const minP = Math.min(...allPrices);
@@ -842,26 +840,14 @@ export function Chart({
       // Snapshot capture failed — continue without it
     }
 
-    const p = patternPrimitiveRef.current;
-    const triggerBars = p?.triggerBox
-      ? data.filter(b => (b.time as number) >= (p.triggerBox!.startTime as number) && (b.time as number) <= (p.triggerBox!.endTime as number))
-      : [];
-    const tradeBars = p?.tradeBox
-      ? data.filter(b => (b.time as number) > (p.tradeBox!.startTime as number) && (b.time as number) <= (p.tradeBox!.endTime as number))
-      : [];
-    const triggerLen = triggerBars.length || Math.round(bars.length * 0.6);
-    const tradeLen = tradeBars.length || (bars.length - triggerLen);
-
     const activeInds = useStore.getState().indicators;
-    const fingerprint = extractFingerprint(bars, data, activeInds, triggerLen);
+    const fingerprint = extractFingerprint(bars, data, activeInds);
     setCapturedPattern(fingerprint);
-    setTriggerRatio(triggerLen / bars.length);
 
     // ── BUILD MATHEMATICAL PROMPT ──
-    // Use ONLY trigger bars for the detection shape (not trade bars)
-    const triggerShape = fingerprint.patternShape.slice(0, triggerLen);
-    const step = Math.max(1, Math.floor(triggerShape.length / 15));
-    const sampled = triggerShape.filter((_, i) => i % step === 0);
+    // Sample the normalized close shape for the LLM (scale-free)
+    const step = Math.max(1, Math.floor(fingerprint.patternShape.length / 15));
+    const sampled = fingerprint.patternShape.filter((_, i) => i % step === 0);
     const shapeStr = sampled.map(v => v.toFixed(2)).join(", ");
 
     // Candle structure summary
@@ -871,47 +857,28 @@ export function Chart({
     const avgBody = cs.length > 0 ? cs.reduce((s, c) => s + c.bodySize, 0) / cs.length : 0;
     const avgWickRatio = cs.length > 0 ? cs.reduce((s, c) => s + c.bodyRatio, 0) / cs.length : 0;
 
-    // Box geometry
-    const triggerRatio = Math.round((fingerprint.triggerRatio || 0.6) * 100);
-    const boxGeometry = [
-      `Trigger: ${triggerRatio}% width, ${((fingerprint.triggerHeightRatio || 0) * 100).toFixed(1)}% height.`,
-      `Trade: ${100 - triggerRatio}% width, ${((fingerprint.tradeHeightRatio || 0) * 100).toFixed(1)}% height.`,
-      `Trade shifts ${fingerprint.heightShift! > 0 ? "up" : "down"} ${Math.abs((fingerprint.heightShift || 0) * 100).toFixed(1)}% from trigger center.`,
-    ].join(" ");
-
     // Indicator math
     const indMath = Object.entries(fingerprint.indicatorMath || {})
       .map(([name, m]) => {
-        return `${name}: ${m.positionRelativeToPrice} price, trigger slope=${m.triggerSlope}, trade slope=${m.tradeSlope}, curvature=${m.curvature}, crosses price ${m.crossesPrice}x`;
+        return `${name}: ${m.positionRelativeToPrice} price, slope=${m.slope}, curvature=${m.curvature}, crosses price ${m.crossesPrice}x`;
       })
       .join(". ");
 
-    // Trend comparison
-    const triggerDir = (fingerprint.triggerTrend || 0) > 0 ? "rising" : "falling";
-    const tradeDir = (fingerprint.tradeTrend || 0) > 0 ? "rising" : "falling";
-
-    // Trade entry/exit details
-    const tradeBarData = bars.slice(triggerLen);
-    const entryPrice = tradeBarData.length > 0 ? tradeBarData[0].open : bars[bars.length - 1].close;
-    const exitPrice = tradeBarData.length > 0 ? tradeBarData[tradeBarData.length - 1].close : entryPrice;
-    const tradePnl = entryPrice !== 0 ? ((exitPrice - entryPrice) / entryPrice) * 100 : 0;
-    const tradeDirection = exitPrice >= entryPrice ? "LONG" : "SHORT";
+    // Overall direction
+    const patternDir = fingerprint.trendAngle > 0 ? "rising" : "falling";
+    const tradeDirection = fingerprint.priceChangePercent >= 0 ? "bullish" : "bearish";
 
     const draft = [
-      `Find this ${bars.length}-bar pattern (${triggerLen} trigger + ${tradeLen} trade bars, scale-free):`,
+      `Find this ${bars.length}-bar pattern (scale-free):`,
       ``,
-      `GOAL: Detect the trigger setup, then predict the trade outcome.`,
-      `TRADE RESULT: ${tradeDirection} entry after trigger → ${tradePnl >= 0 ? "+" : ""}${tradePnl.toFixed(2)}% move (entry at trigger end, exit at trade box end)`,
+      `GOAL: Detect this pattern shape anywhere in the dataset.`,
+      `OVERALL: ${patternDir} ${Math.abs(fingerprint.priceChangePercent).toFixed(1)}%, volatility ${fingerprint.volatility > 0.02 ? "high" : fingerprint.volatility > 0.01 ? "moderate" : "low"}`,
       ``,
-      `TRIGGER SHAPE: [${shapeStr}] (${sampled.length} bars, trigger only, normalized 0-1)`,
+      `SHAPE: [${shapeStr}] (${sampled.length} bars, normalized close 0-1)`,
       `STRUCTURE: ${bullCount} bull / ${bearCount} bear candles, avg body=${(avgBody * 100).toFixed(1)}%, avg body/range=${(avgWickRatio * 100).toFixed(0)}%`,
-      `TRIGGER BOX: ${triggerRatio}% of pattern, height ${((fingerprint.triggerHeightRatio || 0) * 100).toFixed(1)}% of range, trend ${triggerDir}`,
-      `TRADE BOX: ${100 - triggerRatio}% of pattern, height ${((fingerprint.tradeHeightRatio || 0) * 100).toFixed(1)}% of range, trend ${tradeDir}, shifts ${fingerprint.heightShift! > 0 ? "up" : "down"} ${Math.abs((fingerprint.heightShift || 0) * 100).toFixed(1)}%`,
-      `TRADE ENTRY/EXIT: entry at trigger box right edge, exit ${tradeLen} bars later, ${tradePnl >= 0 ? "+" : ""}${tradePnl.toFixed(2)}% change`,
-      `OVERALL: ${fingerprint.trendAngle > 0 ? "up" : "down"} ${Math.abs(fingerprint.priceChangePercent).toFixed(1)}%, volatility ${fingerprint.volatility > 0.02 ? "high" : fingerprint.volatility > 0.01 ? "moderate" : "low"}`,
       indMath ? `INDICATORS: ${indMath}` : "",
       ``,
-      `RULES: Detect the TRIGGER setup only (${sampled.length} bars). Sliding window of EXACTLY ${sampled.length} bars. Normalize each window's closes to 0-1. Pearson correlation > 0.55. For each match, set start_idx to window start and end_idx to window end (= trade entry point). Do NOT include the trade bars in the detection window. Set pattern_type to "${tradeDirection.toLowerCase()}".`,
+      `RULES: Sliding window of EXACTLY ${bars.length} bars. Normalize each window's closes to 0-1. Pearson correlation > 0.55 with the SHAPE above. For each match, set start_idx to window start and end_idx to window end. Set pattern_type to "${tradeDirection}".`,
     ].filter(v => v !== undefined && v !== "").join("\n");
 
     // Add snapshot image to chat if captured

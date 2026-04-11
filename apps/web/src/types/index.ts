@@ -160,20 +160,13 @@ export interface CapturedPatternData {
   normOpen?: number[];
   normHigh?: number[];
   normLow?: number[];
-  triggerRatio?: number;
-  triggerHeightRatio?: number;
-  tradeHeightRatio?: number;
-  heightShift?: number;
-  triggerTrend?: number;
-  tradeTrend?: number;
+  patternHeightRatio?: number;
   indicatorMath?: Record<string, {
     slope: number;
     curvature: number;
     positionRelativeToPrice: string;
     normalizedValues: number[];
     crossesPrice: number;
-    triggerSlope: number;
-    tradeSlope: number;
   }>;
 }
 
