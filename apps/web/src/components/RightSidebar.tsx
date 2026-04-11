@@ -98,8 +98,14 @@ export function RightSidebar() {
   }, [chatInputDraft, setChatInputDraft]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (view !== "chat") return;
+    // Defer to next frame so the chat container has actually mounted and
+    // laid out its children after a tab switch.
+    const id = requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [messages, view]);
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
