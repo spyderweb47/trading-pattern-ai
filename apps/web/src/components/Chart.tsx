@@ -762,19 +762,26 @@ export function Chart({
   const highlightedTradeId = useStore((s) => s.highlightedTradeId);
   const appMode = useStore((s) => s.appMode);
   const positions = useStore((s) => s.positions);
+  const replayCursor = useStore((s) => s.playgroundReplay.currentBarIndex);
   useEffect(() => {
     const prim = tradeBoxRef.current;
     if (!prim) return;
 
-    // In playground mode, feed open positions as live trade boxes
+    // In playground mode, feed open positions as live trade boxes that
+    // grow with the replay cursor (not the end of the full dataset).
     if (appMode === "playground") {
       if (positions.length === 0 || data.length === 0) {
         prim.clear();
         return;
       }
-      const lastBar = data[data.length - 1];
-      const currentPrice = lastBar.close;
-      const currentTime = typeof lastBar.time === "string" ? Number(lastBar.time) : lastBar.time;
+      // Use the bar at the replay cursor as "now" — that's the last revealed
+      // candle. The exit price/time should track this so the box extends from
+      // entry to the current forming candle, growing on every tick.
+      const cursorIdx = Math.max(0, Math.min(replayCursor, data.length - 1));
+      const cursorBar = data[cursorIdx];
+      const currentPrice = cursorBar.close;
+      const currentTime = typeof cursorBar.time === "string" ? Number(cursorBar.time) : cursorBar.time;
+
       const asTrades = positions.map((p) => ({
         id: p.id,
         entryTime: String(p.openedAtTime),
@@ -783,8 +790,14 @@ export function Chart({
         exitPrice: currentPrice,
         direction: p.side,
         quantity: p.size,
-        pnl: p.unrealizedPnl,
-        pnlPercent: p.unrealizedPnlPct,
+        // Recompute live PnL from the cursor price (positions store has
+        // pre-tick values that may be stale during the same render frame).
+        pnl: p.side === "long"
+          ? (currentPrice - p.entryPrice) * (p.size / p.entryPrice)
+          : (p.entryPrice - currentPrice) * (p.size / p.entryPrice),
+        pnlPercent: p.side === "long"
+          ? ((currentPrice - p.entryPrice) / p.entryPrice) * 100
+          : ((p.entryPrice - currentPrice) / p.entryPrice) * 100,
       }));
       prim.setTrades(asTrades as any, data);
       return;
@@ -796,7 +809,7 @@ export function Chart({
     }
 
     prim.setTrades(plottedTrades, data);
-  }, [plottedTrades, data, appMode, positions]);
+  }, [plottedTrades, data, appMode, positions, replayCursor]);
 
   // Highlight a specific trade box when selected in TradeList
   useEffect(() => {
