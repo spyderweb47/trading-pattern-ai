@@ -137,9 +137,14 @@ export class PatternHighlightPrimitive implements ISeriesPrimitive<Time> {
           barCount++;
         }
       }
-      if (minPrice === Infinity || barCount < 2) continue;
+      // Allow single-bar patterns (hammer, doji, engulfing)
+      if (minPrice === Infinity || barCount < 1) continue;
 
-      const pad = (maxPrice - minPrice) * 0.08;
+      // Pad the price box so the label doesn't collide with wicks; at least
+      // 0.2% of mid-price when the bar range is near zero (identical OHLC)
+      const midPrice = (maxPrice + minPrice) / 2;
+      const rawSpan = maxPrice - minPrice;
+      const pad = Math.max(rawSpan * 0.12, Math.abs(midPrice) * 0.002);
       minPrice -= pad;
       maxPrice += pad;
 

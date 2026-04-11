@@ -463,20 +463,63 @@ export function Chart({
     }
   }, [appModeTop]);
 
-  // Update pattern highlight boxes
+  // Update pattern highlight boxes + auto-zoom to show matches
   useEffect(() => {
     const hp = highlightPrimitiveRef.current;
     if (!hp) return;
 
     if (patternMatches.length === 0 || data.length === 0) {
       hp.clear();
-      // Also clear markers
       if (markersRef.current) markersRef.current.setMarkers([]);
       return;
     }
 
     // Render as transparent highlight boxes
     hp.setMatches(patternMatches, data);
+
+    // --- AUTO-ZOOM: fit the viewport around the matches so they're visible ---
+    const chart = chartRef.current;
+    if (chart) {
+      // Collect all match times, snap to nearest bar time, compute span
+      const chartTimes = data.map((b) => b.time as number).sort((a, b) => a - b);
+      if (chartTimes.length > 0) {
+        let minT = Infinity;
+        let maxT = -Infinity;
+        for (const m of patternMatches) {
+          const s = typeof m.startTime === "string" ? Number(m.startTime) : (m.startTime as number);
+          const e = typeof m.endTime === "string" ? Number(m.endTime) : (m.endTime as number);
+          if (isFinite(s)) minT = Math.min(minT, s);
+          if (isFinite(e)) maxT = Math.max(maxT, e);
+        }
+
+        if (isFinite(minT) && isFinite(maxT)) {
+          // Find logical indices of these times in the data array
+          const startIdx = chartTimes.findIndex((t) => t >= minT);
+          let endIdx = chartTimes.findIndex((t) => t >= maxT);
+          if (endIdx === -1) endIdx = chartTimes.length - 1;
+          const safeStart = startIdx === -1 ? 0 : startIdx;
+
+          // Add 25% padding on each side so matches aren't glued to edges
+          const span = Math.max(endIdx - safeStart, 1);
+          const pad = Math.max(Math.round(span * 0.25), 10);
+          const fromLogical = Math.max(0, safeStart - pad);
+          const toLogical = Math.min(chartTimes.length - 1, endIdx + pad);
+
+          // Defer to next frame so the highlight primitive has painted first
+          requestAnimationFrame(() => {
+            try {
+              chart.timeScale().setVisibleLogicalRange({
+                from: fromLogical,
+                to: toLogical,
+              });
+            } catch {
+              // Fallback: fit all content
+              chart.timeScale().fitContent();
+            }
+          });
+        }
+      }
+    }
 
     // Also set small markers at start points for quick navigation
     if (markersRef.current) {
@@ -503,7 +546,7 @@ export function Chart({
         .map(([time, m]) => ({
           time: time as unknown as Time,
           position: "aboveBar" as const,
-          color: m.direction === "bullish" ? "#22c55e" : m.direction === "bearish" ? "#ef4444" : "#6366f1",
+          color: m.direction === "bullish" ? "#00d68f" : m.direction === "bearish" ? "#ff4d4d" : "#ff6b00",
           shape: "circle" as const,
           text: "",
         }));
