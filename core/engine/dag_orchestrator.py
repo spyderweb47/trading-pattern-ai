@@ -31,8 +31,8 @@ from core.agents.simulation_agents import (
 class DebateOrchestrator:
     """Runs the full forum-style social simulation."""
 
-    MAX_ROUNDS = 15
-    SPEAKERS_PER_ROUND = 5  # 4-5 entities respond each round
+    MAX_ROUNDS = 20
+    SPEAKERS_PER_ROUND = 7  # 6-8 entities respond each round for richer debate
 
     def __init__(self) -> None:
         self.classifier = AssetClassifier()
@@ -66,8 +66,8 @@ class DebateOrchestrator:
         entities = await asyncio.to_thread(
             self.entity_gen.generate, asset_info, main_summary, report_text
         )
-        # Cap at 12 to keep discussion manageable
-        entities = entities[:12]
+        # Allow up to 30 entities for diverse perspectives
+        entities = entities[:30]
 
         # --- Stage 4: Forum discussion ---
         thread: List[Dict[str, Any]] = []
@@ -141,7 +141,7 @@ class DebateOrchestrator:
             sentiments_by_round.append(avg_sentiment)
 
             # Check convergence: if last 3 rounds have similar sentiment, stop early
-            if round_num >= 8 and len(sentiments_by_round) >= 3:
+            if round_num >= 12 and len(sentiments_by_round) >= 3:
                 recent = sentiments_by_round[-3:]
                 spread = max(recent) - min(recent)
                 if spread < 0.15:  # sentiments converged within 15%

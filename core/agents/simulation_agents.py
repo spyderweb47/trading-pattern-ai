@@ -164,17 +164,44 @@ CRITICAL RULES:
 - Make at least 2-3 strongly opinionated (one strongly bullish, one strongly bearish, one contrarian)
 - Include at least one "wild card" persona who brings unexpected perspectives
 
-Persona categories to cover:
-- Professional money manager (hedge fund / prop desk / family office)
-- Quantitative/algorithmic trader (data-only, dismisses narratives)
-- Retail investor (different risk profiles — YOLO vs conservative)
-- Industry insider (miners for crypto, employees for stocks, etc.)
-- Technical analyst (pure charts, Fibonacci, Elliott Wave)
-- Macro economist (rates, GDP, central bank policy)
-- Contrarian / skeptic (always argues the other side)
-- Community voice (crypto twitter, Reddit, forums, Telegram)
-- Journalist / media personality (asks probing questions, challenges claims)
-- Risk manager (thinks in terms of what can go wrong)
+Persona categories — cover ALL of these (2-3 personas per category):
+
+PROFESSIONAL:
+- Hedge fund PM / CIO (macro, long-short, multi-strat)
+- Prop desk trader (high frequency, momentum)
+- Family office advisor (wealth preservation, conservative)
+- Venture capitalist (if crypto/tech — growth, early stage)
+
+QUANTITATIVE:
+- Quant researcher (ML models, backtesting, statistical)
+- Algorithmic trader (systematic, execution-focused)
+
+RETAIL:
+- Conviction holder (DCA, long-term, high conviction)
+- Active retail trader (swing trading, options)
+- YOLO/meme trader (high risk, social media driven)
+
+DOMAIN EXPERTS:
+- Industry insider (miners for crypto, employees for stocks, farmers for commodities)
+- Regulatory/legal analyst (government policy, compliance)
+- On-chain/data analyst (if crypto — chain metrics, whale tracking)
+- Sector specialist (the specific industry this asset belongs to)
+
+ANALYSIS STYLES:
+- Pure technical analyst (charts, Fibonacci, Elliott Wave, indicators)
+- Fundamental analyst (DCF, earnings, revenue, competitive moat)
+- Macro economist (rates, GDP, central bank, dollar, cross-asset)
+- Geopolitical analyst (wars, sanctions, trade policy, elections)
+
+CONTRARIANS & WILD CARDS:
+- Permanent bear / skeptic (always argues against consensus)
+- Contrarian (takes the opposite side of whatever is popular)
+- Wild card outsider (brings unexpected perspective — philosopher, historian, psychologist)
+
+MEDIA & COMMUNITY:
+- Financial journalist (investigative, asks hard questions)
+- Social media influencer (large following, shapes retail sentiment)
+- Academic researcher (publishes papers, long-term structural view)
 
 Respond with ONLY valid JSON (no markdown fences):
 {{
@@ -193,7 +220,7 @@ Respond with ONLY valid JSON (no markdown fences):
 
 bias options: strongly_bullish, bullish, cautious_bullish, neutral, cautious_bearish, bearish, strongly_bearish, contrarian
 
-Generate exactly 10-12 entities. Quality over quantity — each one should feel like you could have a real conversation with them."""
+Generate exactly 22-28 entities. Cover EVERY category above. Each one must feel like a real person you could have a conversation with — deep backstory, specific speaking style, earned bias."""
 
 
 class EntityGenerator:
@@ -212,12 +239,12 @@ class EntityGenerator:
             system_prompt=ENTITY_GENERATOR_PROMPT,
             user_message=user_msg,
             temperature=0.7,
-            max_tokens=4000,
+            max_tokens=8000,
         )
         entities = result.get("entities", [])
         if not entities or len(entities) < 5:
             return self._mock(asset_info)
-        return entities[:25]  # cap at 25
+        return entities[:28]
 
     def _mock(self, asset_info: dict) -> list:
         ac = asset_info.get("asset_class", "stock")
