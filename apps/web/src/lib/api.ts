@@ -57,30 +57,47 @@ export async function sendChat(
   });
 }
 
-// Multi-agent debate simulation
-export interface DebateAgentResult {
+// Social simulation debate
+export interface DebateEntity {
+  id: string;
+  name: string;
   role: string;
-  label: string;
-  argument: string;
-  key_points: string[];
-  sentiment: number;
-  signals: string[];
+  background: string;
+  bias: string;
+  personality: string;
 }
 
-export interface DebateDecisionResult {
-  decision: string;
+export interface DebateMessage {
+  id: string;
+  round: number;
+  entity_id: string;
+  entity_name: string;
+  entity_role: string;
+  content: string;
+  sentiment: number;
+  price_prediction?: number | null;
+  agreed_with: string[];
+  disagreed_with: string[];
+  is_chart_support: boolean;
+}
+
+export interface DebateSummary {
+  consensus_direction: string;
   confidence: number;
-  reasoning: string;
-  suggested_entry?: number;
-  suggested_stop?: number;
-  suggested_target?: number;
-  position_size_pct?: number;
+  key_arguments: string[];
+  dissenting_views: string[];
+  price_targets: { low: number; mid: number; high: number };
+  risk_factors: string[];
+  recommendation: Record<string, unknown>;
 }
 
 export interface DebateResult {
   debate_id: string;
-  agents: Record<string, DebateAgentResult>;
-  decision: DebateDecisionResult;
+  asset_info: { asset_class: string; asset_name: string; description: string; price_drivers: string[] };
+  entities: DebateEntity[];
+  thread: DebateMessage[];
+  total_rounds: number;
+  summary: DebateSummary;
   bars_analyzed: number;
   symbol: string;
 }

@@ -2,9 +2,7 @@
 
 import { useRef } from "react";
 import { useStore } from "@/store/useStore";
-import { AgentCard } from "./AgentCard";
 import { DecisionCard } from "./DecisionCard";
-import type { AgentRole } from "@/types";
 
 export function SimulationPanel() {
   const activeDataset = useStore((s) => s.activeDataset);
@@ -23,9 +21,15 @@ export function SimulationPanel() {
     setReport(text);
   };
 
-  const agentRoles = debate
-    ? (Object.keys(debate.agents) as AgentRole[])
-    : [];
+  const statusLabel: Record<string, string> = {
+    idle: "Ready",
+    classifying: "Classifying asset...",
+    generating_entities: "Generating personas...",
+    discussing: `Discussion — Round ${debate?.currentRound || 0}/${debate?.totalRounds || 5}`,
+    summarizing: "Summarizing debate...",
+    complete: "Complete",
+    error: "Error",
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -112,29 +116,72 @@ export function SimulationPanel() {
         )}
       </div>
 
-      {/* Agent Cards (scrollable) */}
+      {/* Status + Entity List */}
       <div className="flex-1 overflow-y-auto py-1">
         {!debate && !loading && (
           <div className="flex items-center justify-center h-full text-[10px]" style={{ color: "var(--text-tertiary)" }}>
             <div className="text-center space-y-2 px-6">
               <div className="text-2xl">🏛</div>
-              <p>Run a debate to see agent analysis.</p>
+              <p>Run a simulation to see 20-30 AI entities debate.</p>
               <p className="text-[9px]" style={{ color: "var(--text-muted)" }}>
-                Upload a report to generate specialized agent personas, or run with just OHLC data for the default committee.
+                Upload a report for specialized personas, or run with just OHLC data.
               </p>
             </div>
           </div>
         )}
 
-        {debate && agentRoles.map((role) => (
-          <AgentCard key={role} result={debate.agents[role]} />
-        ))}
+        {debate && (
+          <>
+            {/* Status bar */}
+            <div className="mx-3 my-1.5 rounded px-2.5 py-1.5 text-[10px] font-semibold"
+              style={{
+                background: debate.status === "complete" ? "rgba(0,214,143,0.1)" : "rgba(255,107,0,0.1)",
+                color: debate.status === "complete" ? "#00d68f" : debate.status === "error" ? "#ff4d4d" : "#ff6b00",
+                border: `1px solid ${debate.status === "complete" ? "#00d68f33" : "#ff6b0033"}`,
+              }}
+            >
+              {statusLabel[debate.status] || debate.status}
+              {debate.assetName && debate.assetName !== debate.symbol && (
+                <span className="ml-2 font-normal" style={{ color: "var(--text-tertiary)" }}>
+                  {debate.assetName} ({debate.assetClass})
+                </span>
+              )}
+            </div>
+
+            {/* Entity grid */}
+            {debate.entities.length > 0 && (
+              <div className="mx-3 my-1.5">
+                <div className="text-[8px] font-bold uppercase tracking-wide mb-1" style={{ color: "var(--text-muted)" }}>
+                  Entities ({debate.entities.length})
+                </div>
+                <div className="grid grid-cols-2 gap-1">
+                  {debate.entities.map((e) => {
+                    const msgs = debate.thread.filter((m) => m.entityId === e.id);
+                    const biasColor = e.bias?.includes("bull") ? "#00d68f" : e.bias?.includes("bear") ? "#ff4d4d" : "#71717a";
+                    return (
+                      <div key={e.id} className="rounded px-1.5 py-1 text-[8px]"
+                        style={{ background: "var(--surface-2)", border: "1px solid var(--border-subtle)" }}>
+                        <div className="font-bold truncate" style={{ color: "var(--text-primary)" }}>{e.name}</div>
+                        <div className="truncate" style={{ color: "var(--text-tertiary)" }}>{e.role}</div>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className="h-1.5 w-1.5 rounded-full" style={{ background: biasColor }} />
+                          <span style={{ color: biasColor }}>{e.bias?.replace("_", " ")}</span>
+                          {msgs.length > 0 && <span className="ml-auto font-mono" style={{ color: "var(--text-muted)" }}>{msgs.length}x</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      {/* Decision Card (sticky bottom) */}
-      {debate?.decision && (
+      {/* Summary Card (sticky bottom) */}
+      {debate?.summary && (
         <div className="shrink-0">
-          <DecisionCard decision={debate.decision} />
+          <DecisionCard summary={debate.summary} />
         </div>
       )}
 

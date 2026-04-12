@@ -164,8 +164,9 @@ function SimulationDebateLog() {
   return (
     <div className="overflow-auto h-full p-3 space-y-2">
       {all.map((d) => {
-        const dec = d.decision;
-        const decColor = dec?.decision === "BUY" ? "#00d68f" : dec?.decision === "SELL" ? "#ff4d4d" : "var(--text-tertiary)";
+        const sum = d.summary;
+        const dir = sum?.consensusDirection;
+        const dirColor = dir === "BULLISH" ? "#00d68f" : dir === "BEARISH" ? "#ff4d4d" : "var(--text-tertiary)";
         return (
           <div
             key={d.id}
@@ -173,20 +174,20 @@ function SimulationDebateLog() {
             style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
           >
             <div className="flex items-center gap-2 text-[10px]">
-              <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{d.symbol}</span>
-              <span style={{ color: "var(--text-muted)" }}>{d.barsAnalyzed} bars</span>
-              {dec && (
-                <span className="rounded px-1.5 py-0.5 text-[8px] font-bold uppercase" style={{ background: `${decColor}22`, color: decColor }}>
-                  {dec.decision} {Math.round(dec.confidence * 100)}%
+              <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{d.assetName || d.symbol}</span>
+              <span style={{ color: "var(--text-muted)" }}>{d.entities.length} entities, {d.thread.length} msgs</span>
+              {sum && (
+                <span className="rounded px-1.5 py-0.5 text-[8px] font-bold uppercase" style={{ background: `${dirColor}22`, color: dirColor }}>
+                  {dir} {Math.round(sum.confidence * 100)}%
                 </span>
               )}
-              <span className="ml-auto text-[8px] font-mono" style={{ color: "var(--text-muted)" }}>
-                {d.startedAt ? new Date(d.startedAt).toLocaleTimeString() : ""}
+              <span className="ml-auto text-[8px]" style={{ color: "var(--text-muted)" }}>
+                {d.status}
               </span>
             </div>
-            {dec?.reasoning && (
+            {sum?.keyArguments?.[0] && (
               <p className="mt-1 text-[9px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
-                {dec.reasoning}
+                {sum.keyArguments[0]}
               </p>
             )}
           </div>

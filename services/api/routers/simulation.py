@@ -32,89 +32,104 @@ class DebateRequest(BaseModel):
     context: str = Field(default="", description="Research report text or user context to generate specialized agent personas")
 
 
-class AgentResultResponse(BaseModel):
+# --- Response models for v2 social simulation ---
+
+class EntityResponse(BaseModel):
+    id: str
+    name: str
     role: str
-    label: str
-    argument: str
-    key_points: List[str]
+    background: str
+    bias: str
+    personality: str
+
+
+class DiscussionMessageResponse(BaseModel):
+    id: str
+    round: int
+    entity_id: str
+    entity_name: str
+    entity_role: str
+    content: str
     sentiment: float
-    signals: List[str]
+    price_prediction: Optional[float] = None
+    agreed_with: List[str] = []
+    disagreed_with: List[str] = []
+    is_chart_support: bool = False
 
 
-class DecisionResponse(BaseModel):
-    decision: str
+class SummaryResponse(BaseModel):
+    consensus_direction: str
     confidence: float
-    reasoning: str
-    suggested_entry: Optional[float] = None
-    suggested_stop: Optional[float] = None
-    suggested_target: Optional[float] = None
-    position_size_pct: Optional[float] = None
+    key_arguments: List[str]
+    dissenting_views: List[str]
+    price_targets: Dict[str, float]
+    risk_factors: List[str]
+    recommendation: Dict[str, Any]
+
+
+class AssetInfoResponse(BaseModel):
+    asset_class: str
+    asset_name: str
+    description: str
+    price_drivers: List[str]
 
 
 class DebateResponse(BaseModel):
     debate_id: str
-    agents: Dict[str, AgentResultResponse]
-    decision: DecisionResponse
+    asset_info: AssetInfoResponse
+    entities: List[EntityResponse]
+    thread: List[DiscussionMessageResponse]
+    total_rounds: int
+    summary: SummaryResponse
     bars_analyzed: int
     symbol: str
 
 
 # ---------------------------------------------------------------------------
-# Debate endpoint
+# Debate endpoint (v2 — social simulation)
 # ---------------------------------------------------------------------------
 
 @router.post("/debate", response_model=DebateResponse)
 async def run_debate(request: DebateRequest) -> DebateResponse:
-    """Run a 4-agent committee debate on the loaded dataset."""
+    """Run the full social simulation: classify → generate entities → 5-round debate → summary."""
     df = store.get_dataframe(request.dataset_id)
     if df is None:
         raise HTTPException(status_code=404, detail=f"Dataset '{request.dataset_id}' not found.")
 
-    # Extract last N bars as dicts
     tail = df.tail(request.bars_count)
     bars: List[Dict[str, Any]] = tail.to_dict("records")
     if not bars:
         raise HTTPException(status_code=422, detail="Dataset has no bars.")
 
-    # Infer symbol from dataset metadata or fallback
     symbol = "Unknown"
     meta = store.get_metadata(request.dataset_id) if hasattr(store, "get_metadata") else None
     if meta and hasattr(meta, "symbol") and meta.symbol:
         symbol = meta.symbol
 
-    # Run the DAG — pass report text for dynamic agent generation
     orchestrator = DebateOrchestrator()
     results = await orchestrator.run(bars, symbol, report_text=request.context or "")
 
-    # Build response — dynamic agent keys (not fixed bull/bear/risk/pm)
-    agents_resp: Dict[str, AgentResultResponse] = {}
-    for key, value in results.items():
-        if key == "decision":
-            continue  # handled separately
-        agents_resp[key] = AgentResultResponse(
-            role=value["role"],
-            label=value["label"],
-            argument=value["argument"],
-            key_points=value.get("key_points", []),
-            sentiment=value.get("sentiment", 0.0),
-            signals=value.get("signals", []),
-        )
-
-    dec = results["decision"]
-    decision_resp = DecisionResponse(
-        decision=dec.get("decision", "HOLD"),
-        confidence=dec.get("confidence", 0.5),
-        reasoning=dec.get("reasoning", ""),
-        suggested_entry=dec.get("suggested_entry"),
-        suggested_stop=dec.get("suggested_stop"),
-        suggested_target=dec.get("suggested_target"),
-        position_size_pct=dec.get("position_size_pct"),
-    )
-
+    ai = results["asset_info"]
     return DebateResponse(
         debate_id=str(uuid.uuid4()),
-        agents=agents_resp,
-        decision=decision_resp,
+        asset_info=AssetInfoResponse(
+            asset_class=ai.get("asset_class", "unknown"),
+            asset_name=ai.get("asset_name", symbol),
+            description=ai.get("description", ""),
+            price_drivers=ai.get("price_drivers", []),
+        ),
+        entities=[EntityResponse(**e) for e in results["entities"]],
+        thread=[DiscussionMessageResponse(**m) for m in results["thread"]],
+        total_rounds=results["total_rounds"],
+        summary=SummaryResponse(
+            consensus_direction=results["summary"].get("consensus_direction", "NEUTRAL"),
+            confidence=results["summary"].get("confidence", 0.5),
+            key_arguments=results["summary"].get("key_arguments", []),
+            dissenting_views=results["summary"].get("dissenting_views", []),
+            price_targets=results["summary"].get("price_targets", {}),
+            risk_factors=results["summary"].get("risk_factors", []),
+            recommendation=results["summary"].get("recommendation", {}),
+        ),
         bars_analyzed=len(bars),
         symbol=symbol,
     )

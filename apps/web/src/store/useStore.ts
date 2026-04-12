@@ -454,16 +454,18 @@ export const useStore = create<AppState>((set) => ({
       }
     }
 
-    // Start with an empty shell — agents will be populated from the API response
     const initial: import("@/types").SimulationDebate = {
       id: debateId,
       datasetId: activeId,
       symbol,
-      barsAnalyzed: 0,
-      startedAt: new Date().toISOString(),
-      agents: {} as Record<string, import("@/types").AgentResult>,
-      decision: null,
-      status: "running",
+      assetClass: "",
+      assetName: symbol,
+      entities: [],
+      thread: [],
+      currentRound: 0,
+      totalRounds: 5,
+      summary: null,
+      status: "classifying",
     };
 
     set({ currentDebate: initial, simulationLoading: true });
@@ -471,77 +473,90 @@ export const useStore = create<AppState>((set) => ({
     try {
       const { runSimulationDebate } = await import("@/lib/api");
       const report = useStore.getState().simulationReport;
-      const resp = await runSimulationDebate(activeId, 100, report);
 
-      // Get dynamic agent roles from response (excluding 'decision' key)
-      const roles = Object.keys(resp.agents);
+      // Update status: classifying
+      set((s) => ({ currentDebate: s.currentDebate ? { ...s.currentDebate, status: "classifying" as const } : null }));
+      await new Promise((r) => setTimeout(r, 200));
 
-      // Initialize all agents as pending on the DAG
-      const pendingAgents: Record<string, import("@/types").AgentResult> = {};
-      for (const role of roles) {
-        pendingAgents[role] = {
-          role,
-          label: resp.agents[role].label,
-          status: "pending",
-          argument: "",
-          keyPoints: [],
-          sentiment: 0,
-          signals: [],
-        };
-      }
-      set((s) => ({
-        currentDebate: s.currentDebate ? { ...s.currentDebate, agents: pendingAgents } : null,
-      }));
+      const resp = await runSimulationDebate(activeId, 500, report);
 
-      // Stagger reveals for DAG animation effect
-      for (const role of roles) {
-        // Mark running
-        set((s) => ({
-          currentDebate: s.currentDebate ? {
-            ...s.currentDebate,
-            agents: { ...s.currentDebate.agents, [role]: { ...s.currentDebate.agents[role], status: "running" as const } },
-          } : null,
-        }));
-        await new Promise((r) => setTimeout(r, 300));
-
-        // Mark done with real data
-        const agentData = resp.agents[role];
-        set((s) => ({
-          currentDebate: s.currentDebate ? {
-            ...s.currentDebate,
-            agents: {
-              ...s.currentDebate.agents,
-              [role]: {
-                role,
-                label: agentData.label,
-                status: "done" as const,
-                argument: agentData.argument,
-                keyPoints: agentData.key_points,
-                sentiment: agentData.sentiment,
-                signals: agentData.signals,
-              },
-            },
-          } : null,
-        }));
-        await new Promise((r) => setTimeout(r, 200));
-      }
-
-      // Set final decision
+      // Update: show entities
       set((s) => ({
         currentDebate: s.currentDebate ? {
           ...s.currentDebate,
-          decision: {
-            decision: resp.decision.decision as import("@/types").TradeDecision,
-            confidence: resp.decision.confidence,
-            reasoning: resp.decision.reasoning,
-            suggestedEntry: resp.decision.suggested_entry,
-            suggestedStop: resp.decision.suggested_stop,
-            suggestedTarget: resp.decision.suggested_target,
-            positionSizePct: resp.decision.position_size_pct,
+          status: "generating_entities" as const,
+          assetClass: resp.asset_info.asset_class,
+          assetName: resp.asset_info.asset_name,
+          entities: resp.entities.map((e) => ({
+            id: e.id, name: e.name, role: e.role,
+            background: e.background, bias: e.bias, personality: e.personality,
+          })),
+        } : null,
+      }));
+      await new Promise((r) => setTimeout(r, 400));
+
+      // Stream thread messages round by round
+      const totalRounds = resp.total_rounds || 5;
+      for (let round = 1; round <= totalRounds; round++) {
+        const roundMsgs = resp.thread.filter((m) => m.round === round);
+        if (roundMsgs.length === 0) continue;
+
+        set((s) => ({
+          currentDebate: s.currentDebate ? { ...s.currentDebate, status: "discussing" as const, currentRound: round } : null,
+        }));
+
+        // Reveal each message in the round with a small delay
+        for (const msg of roundMsgs) {
+          set((s) => ({
+            currentDebate: s.currentDebate ? {
+              ...s.currentDebate,
+              thread: [...s.currentDebate.thread, {
+                id: msg.id,
+                round: msg.round,
+                entityId: msg.entity_id,
+                entityName: msg.entity_name,
+                entityRole: msg.entity_role,
+                content: msg.content,
+                sentiment: msg.sentiment,
+                pricePrediction: msg.price_prediction,
+                agreedWith: msg.agreed_with || [],
+                disagreedWith: msg.disagreed_with || [],
+                isChartSupport: msg.is_chart_support || false,
+              }],
+            } : null,
+          }));
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      }
+
+      // Summarizing
+      set((s) => ({
+        currentDebate: s.currentDebate ? { ...s.currentDebate, status: "summarizing" as const } : null,
+      }));
+      await new Promise((r) => setTimeout(r, 300));
+
+      // Final state
+      const sum = resp.summary;
+      set((s) => ({
+        currentDebate: s.currentDebate ? {
+          ...s.currentDebate,
+          status: "complete" as const,
+          summary: {
+            consensusDirection: (sum.consensus_direction || "NEUTRAL") as import("@/types").SimulationSummary["consensusDirection"],
+            confidence: sum.confidence || 0.5,
+            keyArguments: sum.key_arguments || [],
+            dissentingViews: sum.dissenting_views || [],
+            priceTargets: sum.price_targets || { low: 0, mid: 0, high: 0 },
+            riskFactors: sum.risk_factors || [],
+            recommendation: {
+              action: (sum.recommendation as any)?.action || "HOLD",
+              entry: (sum.recommendation as any)?.entry,
+              stop: (sum.recommendation as any)?.stop,
+              target: (sum.recommendation as any)?.target,
+              position_size_pct: (sum.recommendation as any)?.position_size_pct,
+            },
           },
-          status: "complete",
-          completedAt: new Date().toISOString(),
-          barsAnalyzed: resp.bars_analyzed,
+          totalRounds: resp.total_rounds,
         } : null,
         debateHistory: s.currentDebate
           ? [{ ...s.currentDebate, status: "complete" as const }, ...s.debateHistory].slice(0, 20)
