@@ -434,6 +434,26 @@ export const useStore = create<AppState>((set) => ({
     const symbol = ds?.metadata?.symbol || "Unknown";
     const debateId = crypto.randomUUID();
 
+    // Auto-sync dataset to backend if not already synced
+    if (!state.syncedDatasets.has(activeId)) {
+      try {
+        const rawData = state.datasetRawData[activeId] || state.datasetChartData[activeId];
+        if (rawData && rawData.length > 0) {
+          const { syncDatasetToBackend } = await import("@/lib/api");
+          await syncDatasetToBackend(activeId, rawData, {
+            rows: rawData.length,
+            startDate: ds?.metadata?.startDate || "",
+            endDate: ds?.metadata?.endDate || "",
+            filename: ds?.name || "dataset",
+          });
+          state.markSynced(activeId);
+        }
+      } catch (syncErr) {
+        console.warn("Dataset sync failed:", syncErr);
+        // Continue anyway — the debate endpoint will return 404 if sync truly failed
+      }
+    }
+
     // Start with an empty shell — agents will be populated from the API response
     const initial: import("@/types").SimulationDebate = {
       id: debateId,

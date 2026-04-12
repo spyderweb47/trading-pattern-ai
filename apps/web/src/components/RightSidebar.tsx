@@ -116,6 +116,24 @@ export function RightSidebar() {
     setLoading(true);
 
     try {
+      // Auto-sync dataset to backend if needed
+      if (activeDataset && !useStore.getState().syncedDatasets.has(activeDataset)) {
+        try {
+          const rawData = useStore.getState().datasetRawData[activeDataset] || useStore.getState().datasetChartData[activeDataset];
+          const ds = datasets.find((d) => d.id === activeDataset);
+          if (rawData?.length) {
+            const { syncDatasetToBackend } = await import("@/lib/api");
+            await syncDatasetToBackend(activeDataset, rawData, {
+              rows: rawData.length,
+              startDate: ds?.metadata?.startDate || "",
+              endDate: ds?.metadata?.endDate || "",
+              filename: ds?.name || "dataset",
+            });
+            useStore.getState().markSynced(activeDataset);
+          }
+        } catch { /* continue even if sync fails */ }
+      }
+
       // If sending new pattern fingerprint data, don't pass old script (prevents edit mode)
       const isNewFingerprint = text.includes("TRIGGER SHAPE:") || text.includes("SHAPE:");
       const result = await sendChat(text, activeMode, {
