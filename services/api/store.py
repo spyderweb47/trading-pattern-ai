@@ -54,6 +54,14 @@ class DataStore:
                 return None
             return entry["df"]
 
+    def get_metadata(self, dataset_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve metadata for a dataset. Returns None if not found."""
+        with self._lock:
+            entry = self._datasets.get(dataset_id)
+            if entry is None:
+                return None
+            return entry.get("metadata")
+
     def list_datasets(self) -> List[str]:
         """Return all stored dataset IDs."""
         with self._lock:
