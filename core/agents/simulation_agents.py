@@ -63,7 +63,7 @@ class AssetClassifier:
             max_tokens=500,
         )
         result.setdefault("asset_class", "unknown")
-        result.setdefault("asset_name", symbol)
+        result.setdefault("asset_name", dataset_name)
         result.setdefault("description", "")
         result.setdefault("price_drivers", [])
         return result
