@@ -95,9 +95,9 @@ class DebateOrchestrator:
                 msg = {
                     "id": str(uuid.uuid4()),
                     "round": round_num,
-                    "entity_id": entity["id"],
-                    "entity_name": entity["name"],
-                    "entity_role": entity["role"],
+                    "entity_id": entity.get("id", "unknown"),
+                    "entity_name": entity.get("name") or entity.get("label", "Unknown"),
+                    "entity_role": entity.get("role") or entity.get("label", "Analyst"),
                     "content": result.get("content", ""),
                     "sentiment": float(result.get("sentiment", 0)),
                     "price_prediction": result.get("price_prediction"),

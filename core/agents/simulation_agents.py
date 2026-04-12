@@ -346,16 +346,20 @@ class DiscussionAgent:
 
         thread_context = ""
         if thread_so_far:
-            # Only show the last ~3000 chars to keep context fresh and relevant
             recent_thread = thread_so_far[-3000:] if len(thread_so_far) > 3000 else thread_so_far
             thread_context = f"## Recent Discussion\n{recent_thread}"
 
+        # Entity dicts from the LLM may use varying key names — be defensive
+        e = self.entity
+        name = e.get("name") or e.get("label") or e.get("id", "Analyst")
+        role = e.get("role") or e.get("label") or "Analyst"
+
         prompt = DISCUSSION_PROMPT.format(
-            name=self.entity["name"],
-            role=self.entity["role"],
-            background=self.entity.get("background", ""),
-            bias=self.entity.get("bias", "neutral"),
-            personality=self.entity.get("personality", ""),
+            name=name,
+            role=role,
+            background=e.get("background", ""),
+            bias=e.get("bias", "neutral"),
+            personality=e.get("personality", ""),
             asset_name=self.asset_info.get("asset_name", "the asset"),
             asset_class=self.asset_info.get("asset_class", "unknown"),
             market_context=market_context,
