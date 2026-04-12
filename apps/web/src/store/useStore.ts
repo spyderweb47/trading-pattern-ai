@@ -481,12 +481,13 @@ export const useStore = create<AppState>((set) => ({
       const resp = await runSimulationDebate(activeId, 500, report);
 
       // Update: show entities
+      const assetInfo = resp.asset_info || {};
       set((s) => ({
         currentDebate: s.currentDebate ? {
           ...s.currentDebate,
           status: "generating_entities" as const,
-          assetClass: resp.asset_info.asset_class,
-          assetName: resp.asset_info.asset_name,
+          assetClass: assetInfo.asset_class || "",
+          assetName: assetInfo.asset_name || symbol,
           entities: resp.entities.map((e) => ({
             id: e.id, name: e.name, role: e.role,
             background: e.background, bias: e.bias, personality: e.personality,
