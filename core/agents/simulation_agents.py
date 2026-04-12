@@ -237,7 +237,7 @@ Respond with ONLY valid JSON (no markdown fences):
 
 bias options: strongly_bullish, bullish, cautious_bullish, neutral, cautious_bearish, bearish, strongly_bearish, contrarian
 
-Generate exactly 22-28 entities. Cover EVERY category above. Each one must feel like a real person you could have a conversation with — deep backstory, specific speaking style, earned bias."""
+Generate exactly 12-15 entities. Cover the most relevant categories for this specific asset. Each one must feel like a real person you could have a conversation with — deep backstory, specific speaking style, earned bias."""
 
 
 class EntityGenerator:
@@ -261,7 +261,7 @@ class EntityGenerator:
         entities = result.get("entities", [])
         if not entities or len(entities) < 5:
             return self._mock(asset_info)
-        return entities[:28]
+        return entities[:15]
 
     def _mock(self, asset_info: dict) -> list:
         ac = asset_info.get("asset_class", "stock")

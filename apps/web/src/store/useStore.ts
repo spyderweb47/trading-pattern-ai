@@ -474,9 +474,9 @@ export const useStore = create<AppState>((set) => ({
       const { runSimulationDebate } = await import("@/lib/api");
       const report = useStore.getState().simulationReport;
 
-      // Update status: classifying
-      set((s) => ({ currentDebate: s.currentDebate ? { ...s.currentDebate, status: "classifying" as const } : null }));
-      await new Promise((r) => setTimeout(r, 200));
+      // The entire pipeline (classify → generate entities → 8 rounds of debate → summary)
+      // runs as one API call and takes ~60-120 seconds. Show a progress message.
+      set((s) => ({ currentDebate: s.currentDebate ? { ...s.currentDebate, status: "discussing" as const } : null }));
 
       const resp = await runSimulationDebate(activeId, 500, report);
 

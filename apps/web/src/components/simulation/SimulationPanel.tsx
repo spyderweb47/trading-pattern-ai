@@ -23,9 +23,9 @@ export function SimulationPanel() {
 
   const statusLabel: Record<string, string> = {
     idle: "Ready",
-    classifying: "Classifying asset...",
-    generating_entities: "Generating personas...",
-    discussing: `Discussion — Round ${debate?.currentRound || 0}/${debate?.totalRounds || 5}`,
+    classifying: "Running simulation (~60-90 sec)...",
+    generating_entities: "Running simulation (~60-90 sec)...",
+    discussing: "Running simulation (~60-90 sec)...",
     summarizing: "Summarizing debate...",
     complete: "Complete",
     error: "Error",
@@ -107,7 +107,7 @@ export function SimulationPanel() {
           className="w-full rounded py-2 text-[11px] font-bold uppercase tracking-wide transition-opacity disabled:opacity-40"
           style={{ background: "var(--accent)", color: "#000" }}
         >
-          {loading ? "Analyzing..." : debate?.status === "complete" ? "Run Again" : "Run Committee Debate"}
+          {loading ? "Running... (~60-90 sec)" : debate?.status === "complete" ? "Run Again" : "Run Committee Debate"}
         </button>
         {!activeDataset && (
           <p className="text-[9px] mt-1 text-center" style={{ color: "var(--text-muted)" }}>
