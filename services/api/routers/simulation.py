@@ -89,6 +89,37 @@ class DebateResponse(BaseModel):
 # Debate endpoint (v2 — social simulation)
 # ---------------------------------------------------------------------------
 
+def _sanitize_message(m: dict) -> dict:
+    """Clean LLM-generated message fields so they pass Pydantic validation."""
+    pp = m.get("price_prediction")
+    if pp is not None:
+        if isinstance(pp, str):
+            # Handle ranges like "65000-70000" → take the midpoint
+            pp = pp.replace(",", "").replace("$", "").strip()
+            if "-" in pp and not pp.startswith("-"):
+                parts = pp.split("-")
+                try:
+                    pp = (float(parts[0]) + float(parts[1])) / 2
+                except (ValueError, IndexError):
+                    pp = None
+            else:
+                try:
+                    pp = float(pp)
+                except ValueError:
+                    pp = None
+        elif not isinstance(pp, (int, float)):
+            pp = None
+    m = {**m, "price_prediction": pp}
+    # Ensure list fields are actually lists
+    for key in ("agreed_with", "disagreed_with"):
+        v = m.get(key)
+        if v is None:
+            m[key] = []
+        elif isinstance(v, str):
+            m[key] = [v] if v else []
+    return m
+
+
 @router.post("/debate", response_model=DebateResponse)
 async def run_debate(request: DebateRequest) -> DebateResponse:
     """Run the full social simulation: classify → generate entities → 5-round debate → summary."""
@@ -126,7 +157,7 @@ async def run_debate(request: DebateRequest) -> DebateResponse:
             price_drivers=ai.get("price_drivers", []),
         ),
         entities=[EntityResponse(**e) for e in results["entities"]],
-        thread=[DiscussionMessageResponse(**m) for m in results["thread"]],
+        thread=[DiscussionMessageResponse(**_sanitize_message(m)) for m in results["thread"]],
         total_rounds=results["total_rounds"],
         summary=SummaryResponse(
             consensus_direction=results["summary"].get("consensus_direction", "NEUTRAL"),
