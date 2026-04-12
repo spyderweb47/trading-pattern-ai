@@ -10,6 +10,7 @@ import { executeStrategy } from "@/lib/strategyExecutor";
 import { runPineScript } from "@/lib/pine/runPineScript";
 import { StrategyForm } from "./StrategyForm";
 import { TradingPanel } from "./playground/TradingPanel";
+import { SimulationPanel } from "./simulation/SimulationPanel";
 import type { StrategyConfig } from "@/types";
 
 const TAG_STYLES: Record<string, { bg: string; color: string }> = {
@@ -782,6 +783,13 @@ export function RightSidebar() {
       {appMode === "playground" && (
         <div className="flex flex-1 flex-col min-h-0">
           <TradingPanel />
+        </div>
+      )}
+
+      {/* ─── Simulation Panel (Simulation mode) ─── */}
+      {appMode === "simulation" && (
+        <div className="flex flex-1 flex-col min-h-0">
+          <SimulationPanel />
         </div>
       )}
 

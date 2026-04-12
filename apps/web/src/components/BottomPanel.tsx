@@ -16,6 +16,7 @@ const PANEL_TABS: Record<Mode, string[]> = {
 };
 
 const PLAYGROUND_TABS = ["Positions", "Open Orders", "Trade History", "Wallet"];
+const SIMULATION_TABS = ["Debate Log"];
 
 export function BottomPanel() {
   const [collapsed, setCollapsed] = useState(false);
@@ -30,7 +31,9 @@ export function BottomPanel() {
   const patternMatches = useStore((s) => s.patternMatches);
   const [expandedTrade, setExpandedTrade] = useState<string | null>(null);
 
-  const tabs = appMode === "playground" ? PLAYGROUND_TABS : PANEL_TABS[activeMode];
+  const tabs = appMode === "simulation" ? SIMULATION_TABS
+    : appMode === "playground" ? PLAYGROUND_TABS
+    : PANEL_TABS[activeMode];
 
   // Reset active tab when mode changes to avoid out-of-range index
   useEffect(() => {
@@ -120,7 +123,9 @@ export function BottomPanel() {
       {/* Content */}
       {!collapsed && (
         <div className="flex-1 overflow-auto">
-          {appMode === "playground" ? (
+          {appMode === "simulation" ? (
+            <SimulationDebateLog />
+          ) : appMode === "playground" ? (
             activeTab === 0 ? <PositionsTab /> :
             activeTab === 1 ? <OrdersTab /> :
             activeTab === 2 ? <TradeHistoryTab /> :
@@ -136,6 +141,57 @@ export function BottomPanel() {
           ) : null}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─── Simulation Debate Log ─── */
+
+function SimulationDebateLog() {
+  const debate = useStore((s) => s.currentDebate);
+  const history = useStore((s) => s.debateHistory);
+
+  if (!debate && history.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center text-xs" style={{ color: "var(--text-tertiary)" }}>
+        Run a committee debate to see the log
+      </div>
+    );
+  }
+
+  const all = debate ? [debate, ...history] : history;
+
+  return (
+    <div className="overflow-auto h-full p-3 space-y-2">
+      {all.map((d) => {
+        const dec = d.decision;
+        const decColor = dec?.decision === "BUY" ? "#00d68f" : dec?.decision === "SELL" ? "#ff4d4d" : "var(--text-tertiary)";
+        return (
+          <div
+            key={d.id}
+            className="rounded-md p-2"
+            style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center gap-2 text-[10px]">
+              <span className="font-semibold" style={{ color: "var(--text-primary)" }}>{d.symbol}</span>
+              <span style={{ color: "var(--text-muted)" }}>{d.barsAnalyzed} bars</span>
+              {dec && (
+                <span className="rounded px-1.5 py-0.5 text-[8px] font-bold uppercase" style={{ background: `${decColor}22`, color: decColor }}>
+                  {dec.decision} {Math.round(dec.confidence * 100)}%
+                </span>
+              )}
+              <span className="ml-auto text-[8px] font-mono" style={{ color: "var(--text-muted)" }}>
+                {d.startedAt ? new Date(d.startedAt).toLocaleTimeString() : ""}
+              </span>
+            </div>
+            {dec?.reasoning && (
+              <p className="mt-1 text-[9px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                {dec.reasoning}
+              </p>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

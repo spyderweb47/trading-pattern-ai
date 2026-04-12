@@ -146,6 +146,14 @@ interface AppState {
   walletEquityHistory: { barIdx: number; equity: number }[];
   pushWalletEquity: (barIdx: number, equity: number) => void;
   clearWalletEquityHistory: () => void;
+
+  // ===== Simulation Mode (Multi-Agent Debate) =====
+  currentDebate: import('@/types').SimulationDebate | null;
+  debateHistory: import('@/types').SimulationDebate[];
+  simulationLoading: boolean;
+  runDebate: () => Promise<void>;
+  setCurrentDebate: (d: import('@/types').SimulationDebate | null) => void;
+  resetSimulation: () => void;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -407,5 +415,112 @@ export const useStore = create<AppState>((set) => ({
   pushWalletEquity: (barIdx, equity) =>
     set((s) => ({ walletEquityHistory: [...s.walletEquityHistory, { barIdx, equity }] })),
   clearWalletEquityHistory: () => set({ walletEquityHistory: [] }),
+
+  // ===== Simulation Mode (Multi-Agent Debate) =====
+  currentDebate: null,
+  debateHistory: [],
+  simulationLoading: false,
+
+  runDebate: async () => {
+    const state = useStore.getState();
+    const activeId = state.activeDataset;
+    if (!activeId || state.simulationLoading) return;
+
+    const ds = state.datasets.find((d) => d.id === activeId);
+    const symbol = ds?.metadata?.symbol || "Unknown";
+    const debateId = crypto.randomUUID();
+
+    const mkAgent = (role: import("@/types").AgentRole, label: string): import("@/types").AgentResult => ({
+      role, label, status: "pending", argument: "", keyPoints: [], sentiment: 0, signals: [],
+    });
+
+    const initial: import("@/types").SimulationDebate = {
+      id: debateId,
+      datasetId: activeId,
+      symbol,
+      barsAnalyzed: 0,
+      startedAt: new Date().toISOString(),
+      agents: {
+        bull: mkAgent("bull", "Bull Analyst"),
+        bear: mkAgent("bear", "Bear Analyst"),
+        risk: mkAgent("risk", "Risk Officer"),
+        pm: mkAgent("pm", "Portfolio Manager"),
+      },
+      decision: null,
+      status: "running",
+    };
+
+    set({ currentDebate: initial, simulationLoading: true });
+
+    try {
+      const { runSimulationDebate } = await import("@/lib/api");
+      const resp = await runSimulationDebate(activeId);
+
+      // Stagger reveals for DAG animation effect (backend returned all at once)
+      const roles: import("@/types").AgentRole[] = ["bull", "bear", "risk", "pm"];
+      for (const role of roles) {
+        // Mark running
+        set((s) => ({
+          currentDebate: s.currentDebate ? {
+            ...s.currentDebate,
+            agents: { ...s.currentDebate.agents, [role]: { ...s.currentDebate.agents[role], status: "running" as const } },
+          } : null,
+        }));
+        await new Promise((r) => setTimeout(r, 300));
+
+        // Mark done with real data
+        const agentData = resp.agents[role];
+        set((s) => ({
+          currentDebate: s.currentDebate ? {
+            ...s.currentDebate,
+            agents: {
+              ...s.currentDebate.agents,
+              [role]: {
+                role,
+                label: agentData.label,
+                status: "done" as const,
+                argument: agentData.argument,
+                keyPoints: agentData.key_points,
+                sentiment: agentData.sentiment,
+                signals: agentData.signals,
+              },
+            },
+          } : null,
+        }));
+        await new Promise((r) => setTimeout(r, 200));
+      }
+
+      // Set final decision
+      set((s) => ({
+        currentDebate: s.currentDebate ? {
+          ...s.currentDebate,
+          decision: {
+            decision: resp.decision.decision as import("@/types").TradeDecision,
+            confidence: resp.decision.confidence,
+            reasoning: resp.decision.reasoning,
+            suggestedEntry: resp.decision.suggested_entry,
+            suggestedStop: resp.decision.suggested_stop,
+            suggestedTarget: resp.decision.suggested_target,
+            positionSizePct: resp.decision.position_size_pct,
+          },
+          status: "complete",
+          completedAt: new Date().toISOString(),
+          barsAnalyzed: resp.bars_analyzed,
+        } : null,
+        debateHistory: s.currentDebate
+          ? [{ ...s.currentDebate, status: "complete" as const }, ...s.debateHistory].slice(0, 20)
+          : s.debateHistory,
+        simulationLoading: false,
+      }));
+    } catch (err) {
+      set((s) => ({
+        currentDebate: s.currentDebate ? { ...s.currentDebate, status: "error", error: String(err) } : null,
+        simulationLoading: false,
+      }));
+    }
+  },
+
+  setCurrentDebate: (d) => set({ currentDebate: d }),
+  resetSimulation: () => set({ currentDebate: null, simulationLoading: false }),
 }));
 

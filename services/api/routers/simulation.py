@@ -1,21 +1,122 @@
 """
 Simulation router.
 
-Runs a bar-by-bar replay simulation using the core SimulationEngine.
+Runs a bar-by-bar replay simulation using the core SimulationEngine,
+and a multi-agent debate endpoint for the Simulation mode committee.
 """
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import asdict
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from core.engine.simulation_engine import SimulationEngine
+from core.engine.dag_orchestrator import DebateOrchestrator
 from services.api.models import SimulateRequest, SimulateResponse
 from services.api.store import store
 
 router = APIRouter(tags=["simulation"])
+
+
+# ---------------------------------------------------------------------------
+# Multi-Agent Debate models
+# ---------------------------------------------------------------------------
+
+class DebateRequest(BaseModel):
+    dataset_id: str = Field(..., description="UUID of the uploaded dataset")
+    bars_count: int = Field(default=100, ge=10, le=500)
+    context: str = Field(default="", description="Optional user question or focus area")
+
+
+class AgentResultResponse(BaseModel):
+    role: str
+    label: str
+    argument: str
+    key_points: List[str]
+    sentiment: float
+    signals: List[str]
+
+
+class DecisionResponse(BaseModel):
+    decision: str
+    confidence: float
+    reasoning: str
+    suggested_entry: Optional[float] = None
+    suggested_stop: Optional[float] = None
+    suggested_target: Optional[float] = None
+    position_size_pct: Optional[float] = None
+
+
+class DebateResponse(BaseModel):
+    debate_id: str
+    agents: Dict[str, AgentResultResponse]
+    decision: DecisionResponse
+    bars_analyzed: int
+    symbol: str
+
+
+# ---------------------------------------------------------------------------
+# Debate endpoint
+# ---------------------------------------------------------------------------
+
+@router.post("/debate", response_model=DebateResponse)
+async def run_debate(request: DebateRequest) -> DebateResponse:
+    """Run a 4-agent committee debate on the loaded dataset."""
+    df = store.get_dataframe(request.dataset_id)
+    if df is None:
+        raise HTTPException(status_code=404, detail=f"Dataset '{request.dataset_id}' not found.")
+
+    # Extract last N bars as dicts
+    tail = df.tail(request.bars_count)
+    bars: List[Dict[str, Any]] = tail.to_dict("records")
+    if not bars:
+        raise HTTPException(status_code=422, detail="Dataset has no bars.")
+
+    # Infer symbol from dataset metadata or fallback
+    symbol = "Unknown"
+    meta = store.get_metadata(request.dataset_id) if hasattr(store, "get_metadata") else None
+    if meta and hasattr(meta, "symbol") and meta.symbol:
+        symbol = meta.symbol
+
+    # Run the DAG
+    orchestrator = DebateOrchestrator()
+    results = await orchestrator.run(bars, symbol)
+
+    # Build response
+    agents_resp: Dict[str, AgentResultResponse] = {}
+    for role in ["bull", "bear", "risk", "pm"]:
+        r = results[role]
+        agents_resp[role] = AgentResultResponse(
+            role=r["role"],
+            label=r["label"],
+            argument=r["argument"],
+            key_points=r.get("key_points", []),
+            sentiment=r.get("sentiment", 0.0),
+            signals=r.get("signals", []),
+        )
+
+    dec = results["decision"]
+    decision_resp = DecisionResponse(
+        decision=dec.get("decision", "HOLD"),
+        confidence=dec.get("confidence", 0.5),
+        reasoning=dec.get("reasoning", ""),
+        suggested_entry=dec.get("suggested_entry"),
+        suggested_stop=dec.get("suggested_stop"),
+        suggested_target=dec.get("suggested_target"),
+        position_size_pct=dec.get("position_size_pct"),
+    )
+
+    return DebateResponse(
+        debate_id=str(uuid.uuid4()),
+        agents=agents_resp,
+        decision=decision_resp,
+        bars_analyzed=len(bars),
+        symbol=symbol,
+    )
 
 
 @router.post("/simulate", response_model=SimulateResponse)

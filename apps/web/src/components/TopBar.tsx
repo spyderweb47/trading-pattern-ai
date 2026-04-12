@@ -44,7 +44,7 @@ export function TopBar({ onToggleSidebar, sidebarCollapsed }: TopBarProps) {
         className="flex items-center rounded-md p-[3px] shrink-0"
         style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
       >
-        {(["building", "playground"] as const).map((m) => {
+        {(["building", "playground", "simulation"] as const).map((m) => {
           const active = appMode === m;
           return (
             <button

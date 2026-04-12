@@ -174,7 +174,7 @@ export interface CapturedPatternData {
 // Playground Mode Types
 // ============================================================================
 
-export type AppMode = 'building' | 'playground';
+export type AppMode = 'building' | 'playground' | 'simulation';
 
 export type PositionSide = 'long' | 'short';
 export type OrderType = 'market' | 'limit';
@@ -236,4 +236,45 @@ export interface PlaygroundReplay {
   speed: number;             // 0.5, 1, 2, 5, 10, 1000
   currentBarIndex: number;
   totalBars: number;
+}
+
+// ============================================================================
+// Simulation Mode Types (Multi-Agent Debate)
+// ============================================================================
+
+export type AgentRole = 'bull' | 'bear' | 'risk' | 'pm';
+export type AgentStatus = 'pending' | 'running' | 'done' | 'error';
+export type TradeDecision = 'BUY' | 'SELL' | 'HOLD';
+
+export interface AgentResult {
+  role: AgentRole;
+  label: string;
+  status: AgentStatus;
+  argument: string;
+  keyPoints: string[];
+  sentiment: number;
+  signals: string[];
+}
+
+export interface SimulationDecision {
+  decision: TradeDecision;
+  confidence: number;
+  reasoning: string;
+  suggestedEntry?: number;
+  suggestedStop?: number;
+  suggestedTarget?: number;
+  positionSizePct?: number;
+}
+
+export interface SimulationDebate {
+  id: string;
+  datasetId: string;
+  symbol: string;
+  barsAnalyzed: number;
+  startedAt: string;
+  completedAt?: string;
+  agents: Record<AgentRole, AgentResult>;
+  decision: SimulationDecision | null;
+  status: 'idle' | 'running' | 'complete' | 'error';
+  error?: string;
 }

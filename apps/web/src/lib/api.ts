@@ -57,6 +57,45 @@ export async function sendChat(
   });
 }
 
+// Multi-agent debate simulation
+export interface DebateAgentResult {
+  role: string;
+  label: string;
+  argument: string;
+  key_points: string[];
+  sentiment: number;
+  signals: string[];
+}
+
+export interface DebateDecisionResult {
+  decision: string;
+  confidence: number;
+  reasoning: string;
+  suggested_entry?: number;
+  suggested_stop?: number;
+  suggested_target?: number;
+  position_size_pct?: number;
+}
+
+export interface DebateResult {
+  debate_id: string;
+  agents: Record<string, DebateAgentResult>;
+  decision: DebateDecisionResult;
+  bars_analyzed: number;
+  symbol: string;
+}
+
+export async function runSimulationDebate(
+  datasetId: string,
+  barsCount: number = 100,
+  context: string = '',
+): Promise<DebateResult> {
+  return request('/debate', {
+    method: 'POST',
+    body: JSON.stringify({ dataset_id: datasetId, bars_count: barsCount, context }),
+  });
+}
+
 // Check if LLM is available
 export async function getChatStatus(): Promise<{ llm_available: boolean; mode: string }> {
   return request('/chat/status');
