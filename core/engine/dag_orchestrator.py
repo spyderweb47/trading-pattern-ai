@@ -1,15 +1,16 @@
 """
-6-stage social simulation orchestrator.
+Social simulation orchestrator — forum-style multi-round debate.
 
 Pipeline:
-  1. AssetClassifier → classify the asset
-  2. ChartSupportAgent → prepare multi-timeframe data
-  3. EntityGenerator → create 20-30 personas
-  4. Multi-round discussion (5 rounds, 6-8 entities per round, parallel)
-  5. ChartSupportAgent → inject data when requested mid-debate
-  6. SummaryAgent → produce final report
+  1. Read asset name from dataset metadata (skip classifier if available)
+  2. ChartSupportAgent — prepare multi-timeframe data
+  3. EntityGenerator — create 10-12 deep personas
+  4. Forum discussion — 15-20 rounds, 4-5 speakers per round respond to each other
+  5. ChartSupportAgent — inject data when entities request it mid-debate
+  6. SummaryAgent — produce final report when consensus reached or max rounds hit
 
-Each round's speakers see the FULL thread so far (shared context).
+Each entity speaks ~15-20 times across the simulation. They MUST reference
+and respond to other entities' messages — not just post independently.
 """
 
 from __future__ import annotations
@@ -28,10 +29,10 @@ from core.agents.simulation_agents import (
 
 
 class DebateOrchestrator:
-    """Runs the full social simulation pipeline."""
+    """Runs the full forum-style social simulation."""
 
-    ROUNDS = 5
-    SPEAKERS_PER_ROUND = 7
+    MAX_ROUNDS = 15
+    SPEAKERS_PER_ROUND = 5  # 4-5 entities respond each round
 
     def __init__(self) -> None:
         self.classifier = AssetClassifier()
@@ -45,9 +46,10 @@ class DebateOrchestrator:
         symbol: str,
         report_text: str = "",
     ) -> Dict[str, Any]:
-        """Execute the full 6-stage pipeline."""
+        """Execute the full simulation pipeline."""
 
-        # --- Stage 1: Classify the asset ---
+        # --- Stage 1: Asset classification ---
+        # Use the symbol/filename from the dataset directly
         price_range = (
             min(b["low"] for b in bars) if bars else 0,
             max(b["high"] for b in bars) if bars else 0,
@@ -56,36 +58,39 @@ class DebateOrchestrator:
             self.classifier.classify, symbol, price_range, len(bars)
         )
 
-        # --- Stage 2: Prepare multi-timeframe data ---
+        # --- Stage 2: Prepare data ---
         summaries = self.chart_support.prepare_multi_timeframe(bars, symbol)
         main_summary = summaries.get("daily", summaries.get("raw", "No data"))
 
-        # --- Stage 3: Generate entities ---
+        # --- Stage 3: Generate entities (10-12 deep personas) ---
         entities = await asyncio.to_thread(
             self.entity_gen.generate, asset_info, main_summary, report_text
         )
+        # Cap at 12 to keep discussion manageable
+        entities = entities[:12]
 
-        # --- Stage 4 + 5: Multi-round discussion ---
+        # --- Stage 4: Forum discussion ---
         thread: List[Dict[str, Any]] = []
         thread_text = ""
-        all_entities = list(entities)
-        n_entities = len(all_entities)
+        n_entities = len(entities)
+        sentiments_by_round: List[float] = []
 
-        for round_num in range(1, self.ROUNDS + 1):
-            # Pick speakers for this round (round-robin)
+        for round_num in range(1, self.MAX_ROUNDS + 1):
+            # Pick speakers: rotate through all entities, 5 per round
             start_idx = ((round_num - 1) * self.SPEAKERS_PER_ROUND) % n_entities
-            speaker_indices = []
-            for j in range(self.SPEAKERS_PER_ROUND):
-                speaker_indices.append((start_idx + j) % n_entities)
-            speakers = [all_entities[i] for i in speaker_indices]
+            speaker_indices = [(start_idx + j) % n_entities for j in range(self.SPEAKERS_PER_ROUND)]
+            speakers = [entities[i] for i in speaker_indices]
 
             # All speakers in this round run in parallel
             agents = [DiscussionAgent(e, asset_info) for e in speakers]
             results = await asyncio.gather(
-                *[asyncio.to_thread(a.speak, main_summary, thread_text, report_text[:800]) for a in agents]
+                *[asyncio.to_thread(
+                    a.speak, main_summary, thread_text, report_text[:600], round_num
+                ) for a in agents]
             )
 
             # Append to thread
+            round_sentiments = []
             for entity, result in zip(speakers, results):
                 msg = {
                     "id": str(uuid.uuid4()),
@@ -102,11 +107,12 @@ class DebateOrchestrator:
                     "data_request": result.get("data_request"),
                 }
                 thread.append(msg)
+                round_sentiments.append(msg["sentiment"])
 
-            # Update thread text for next round
+            # Update thread text
             thread_text = self._build_thread_text(thread)
 
-            # --- Stage 5: Check for data requests in this round ---
+            # --- Stage 5: Check for data requests ---
             for msg in thread:
                 if msg["round"] == round_num and msg.get("data_request"):
                     injected = self.chart_support.handle_data_request(
@@ -119,7 +125,7 @@ class DebateOrchestrator:
                             "entity_id": "chart_support",
                             "entity_name": "Chart Support",
                             "entity_role": "Data Agent",
-                            "content": f"[Data for {msg['entity_name']}]\n{injected}",
+                            "content": f"[Data requested by {msg['entity_name']}]\n{injected}",
                             "sentiment": 0,
                             "price_prediction": None,
                             "agreed_with": [],
@@ -130,6 +136,17 @@ class DebateOrchestrator:
                         thread.append(chart_msg)
                         thread_text = self._build_thread_text(thread)
 
+            # Track sentiment convergence
+            avg_sentiment = sum(round_sentiments) / len(round_sentiments) if round_sentiments else 0
+            sentiments_by_round.append(avg_sentiment)
+
+            # Check convergence: if last 3 rounds have similar sentiment, stop early
+            if round_num >= 8 and len(sentiments_by_round) >= 3:
+                recent = sentiments_by_round[-3:]
+                spread = max(recent) - min(recent)
+                if spread < 0.15:  # sentiments converged within 15%
+                    break
+
         # --- Stage 6: Summary ---
         summary = await asyncio.to_thread(
             self.summary_agent.summarize, thread_text, asset_info
@@ -137,22 +154,21 @@ class DebateOrchestrator:
 
         return {
             "asset_info": asset_info,
-            "entities": all_entities,
+            "entities": entities,
             "thread": thread,
-            "total_rounds": self.ROUNDS,
+            "total_rounds": round_num,
             "summary": summary,
         }
 
     def _build_thread_text(self, thread: List[Dict]) -> str:
-        """Build a compact text representation of the discussion for LLM context."""
         lines = []
         current_round = 0
         for msg in thread:
             if msg["round"] != current_round:
                 current_round = msg["round"]
                 lines.append(f"\n--- Round {current_round} ---")
-            prefix = f"[{msg['entity_name']} ({msg['entity_role']})]"
             if msg.get("is_chart_support"):
-                prefix = "[Chart Support]"
-            lines.append(f"{prefix}: {msg['content']}")
+                lines.append(f"[Chart Support]: {msg['content']}")
+            else:
+                lines.append(f"{msg['entity_name']} ({msg['entity_role']}): {msg['content']}")
         return "\n".join(lines)

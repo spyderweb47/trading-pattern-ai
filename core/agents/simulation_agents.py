@@ -153,19 +153,28 @@ class ChartSupportAgent:
 # Stage 3: Entity Generator
 # ---------------------------------------------------------------------------
 
-ENTITY_GENERATOR_PROMPT = """You are a simulation architect. Given an asset and its context, generate 20-25 diverse personas who would have strong opinions about this asset's price.
+ENTITY_GENERATOR_PROMPT = """You are a simulation architect. Given an asset and its context, generate 10-12 deeply developed personas who would have STRONG and DISTINCT opinions about this asset's next price move.
 
-CRITICAL: Create REALISTIC, DIVERSE personas with NAMES, not generic roles. Include:
-- Professional traders (hedge fund, prop desk, quant)
-- Retail investors (different risk profiles)
-- Industry insiders (if applicable — miners for crypto, employees for stocks)
-- Analysts (technical, fundamental, macro)
-- Contrarians and skeptics
-- Media/journalists who cover this asset
-- Regulatory/policy observers
-- Community members (crypto twitter, Reddit, forums)
+CRITICAL RULES:
+- Each persona must feel like a REAL, fully fleshed-out person — not a generic label
+- Give them a NAME, an AGE, a SPECIFIC background with years of experience, notable wins/losses
+- Their personality should dictate HOW they argue: do they use data? emotions? memes? academic papers? gut feeling?
+- Include their SPEAKING STYLE: formal? casual? aggressive? sarcastic? measured?
+- Their bias should feel EARNED from their background — a burned short seller is bearish for a reason
+- Make at least 2-3 strongly opinionated (one strongly bullish, one strongly bearish, one contrarian)
+- Include at least one "wild card" persona who brings unexpected perspectives
 
-Each persona must feel like a REAL person with a distinct voice, not a generic label.
+Persona categories to cover:
+- Professional money manager (hedge fund / prop desk / family office)
+- Quantitative/algorithmic trader (data-only, dismisses narratives)
+- Retail investor (different risk profiles — YOLO vs conservative)
+- Industry insider (miners for crypto, employees for stocks, etc.)
+- Technical analyst (pure charts, Fibonacci, Elliott Wave)
+- Macro economist (rates, GDP, central bank policy)
+- Contrarian / skeptic (always argues the other side)
+- Community voice (crypto twitter, Reddit, forums, Telegram)
+- Journalist / media personality (asks probing questions, challenges claims)
+- Risk manager (thinks in terms of what can go wrong)
 
 Respond with ONLY valid JSON (no markdown fences):
 {{
@@ -174,18 +183,17 @@ Respond with ONLY valid JSON (no markdown fences):
       "id": "marcus_wei",
       "name": "Marcus Wei",
       "role": "Macro Hedge Fund PM",
-      "background": "15 years managing a $2B global macro fund. CFA, MIT Sloan grad. Trades based on central bank policy and cross-asset correlations.",
+      "background": "Age 47. 15 years managing a $2B global macro fund at Citadel before going independent. CFA, MIT Sloan MBA. Famous for calling the 2022 crypto crash 3 months early. Lost 30% in 2020 being too bearish on tech. Now trades based on central bank policy divergences and cross-asset correlations. Manages risk religiously — never risks more than 2% per trade.",
       "bias": "cautious_bullish",
-      "personality": "data-driven, measured, prefers risk-adjusted returns over moonshots"
+      "personality": "Speaks in measured, precise language. Always cites specific data points. Never uses exclamation marks. Prefers risk-adjusted returns over raw performance. Will say 'the data suggests' rather than 'I think'. Respects other analysts but challenges sloppy thinking."
     }},
     ...
   ]
 }}
 
 bias options: strongly_bullish, bullish, cautious_bullish, neutral, cautious_bearish, bearish, strongly_bearish, contrarian
-personality: 1-2 sentence description of how they argue (aggressive? measured? memetic? academic?)
 
-Generate exactly 20-25 entities. Make them DIVERSE — different ages, backgrounds, risk appetites, analysis styles."""
+Generate exactly 10-12 entities. Quality over quantity — each one should feel like you could have a real conversation with them."""
 
 
 class EntityGenerator:
@@ -215,26 +223,26 @@ class EntityGenerator:
         ac = asset_info.get("asset_class", "stock")
         if ac == "crypto":
             return [
-                {"id": "hedge_fund_pm", "name": "Marcus Wei", "role": "Macro Hedge Fund PM", "background": "15 years managing $2B fund", "bias": "cautious_bullish", "personality": "data-driven, measured"},
-                {"id": "crypto_whale", "name": "0xDegen", "role": "Crypto Whale", "background": "Early BTC adopter, $50M portfolio", "bias": "bullish", "personality": "aggressive, meme-driven"},
-                {"id": "quant_trader", "name": "Dr. Ananya Patel", "role": "Quantitative Trader", "background": "PhD in financial mathematics, algo trading desk", "bias": "neutral", "personality": "purely statistical, dismisses narratives"},
-                {"id": "retail_bull", "name": "Jake Miller", "role": "Retail Investor", "background": "Software engineer, DCA since 2020", "bias": "bullish", "personality": "conviction-based, long-term holder"},
-                {"id": "macro_bear", "name": "Dr. Elena Volkov", "role": "Macro Economist", "background": "Former Fed economist, now at think tank", "bias": "bearish", "personality": "academic, cites monetary policy data"},
-                {"id": "onchain_analyst", "name": "Glassnode_Guru", "role": "On-Chain Analyst", "background": "Runs popular analytics dashboard", "bias": "neutral", "personality": "lets data speak, shows charts and metrics"},
-                {"id": "miner", "name": "Zhang Wei", "role": "Mining Farm Operator", "background": "Runs 500PH/s operation in Texas", "bias": "bullish", "personality": "practical, cost-focused, knows hashrate dynamics"},
-                {"id": "skeptic", "name": "Peter Schiff Jr.", "role": "Gold Bug / Crypto Skeptic", "background": "Traditional finance, gold advocate", "bias": "strongly_bearish", "personality": "dismissive of crypto, cites fundamentals"},
-                {"id": "defi_dev", "name": "Vitalik_Fan_42", "role": "DeFi Developer", "background": "Builds on Layer 2, understands protocol economics", "bias": "cautious_bullish", "personality": "technical, ecosystem-focused"},
-                {"id": "journalist", "name": "Sarah Chen", "role": "Crypto Journalist", "background": "Covers crypto for major financial outlet", "bias": "neutral", "personality": "balanced, asks probing questions"},
+                {"id": "marcus_wei", "name": "Marcus Wei", "role": "Macro Hedge Fund PM", "background": "Age 47. Ran a $2B macro fund at Citadel for 8 years, now independent. Called the 2022 crypto crash early. Lost 30% in 2020 being too bearish on tech. CFA, MIT Sloan. Trades based on central bank policy divergences.", "bias": "cautious_bullish", "personality": "Measured, precise. Says 'the data suggests' not 'I think'. Never uses exclamation marks. Cites specific numbers. Respects other analysts but dismantles sloppy reasoning."},
+                {"id": "0xdegen", "name": "0xDegen", "role": "Crypto Whale / DeFi Degen", "background": "Age 29. Bought BTC at $200 in 2015, rode it to $69K, never sold. $50M+ portfolio across 40 protocols. Known for 100x leverage positions and viral Twitter threads. Lost $8M in the LUNA crash but 'learned nothing' by his own admission.", "bias": "strongly_bullish", "personality": "Chaotic energy. Uses crypto slang (ngmi, wagmi, ser). Drops alpha casually. Mocks bears as 'having fun staying poor'. Posts at 3am. Surprisingly sharp under the meme layer."},
+                {"id": "ananya_patel", "name": "Dr. Ananya Patel", "role": "Quantitative Researcher", "background": "Age 34. PhD in statistical physics from Caltech, now at a crypto quant fund. Built ML models that predicted 3 of 4 major BTC moves in 2024. Refuses to look at Twitter or Reddit. Only trusts backtested signals.", "bias": "neutral", "personality": "Clinical, almost cold. 'Narratives are noise, show me the Sharpe ratio.' Uses precise decimal places. Will dismiss a bullish thesis if the p-value is above 0.05. Rarely changes her mind."},
+                {"id": "jake_miller", "name": "Jake Miller", "role": "Retail DCA Investor", "background": "Age 31. Software engineer at a FAANG company. Has DCA'd $1000/month into BTC since 2020. Never traded, never sold. Read 'The Bitcoin Standard' twice. Down 15% on his total investment but doesn't care.", "bias": "bullish", "personality": "Earnest, conviction-based. Quotes Saylor and Satoshi. Genuinely believes in the technology. Gets emotional when people call BTC a scam. Says 'zoom out' a lot."},
+                {"id": "elena_volkov", "name": "Dr. Elena Volkov", "role": "Macro Economist", "background": "Age 52. Former Fed economist for 12 years, now runs a research think tank. Published 40+ papers on monetary policy transmission. Called the 2008 crisis 6 months early. Thinks crypto is 'interesting but overhyped'.", "bias": "bearish", "personality": "Academic, methodical. Cites papers and Fed minutes. Uses phrases like 'given the current yield curve environment'. Gets frustrated when people ignore macro context. Speaks in paragraphs, not soundbites."},
+                {"id": "glassnode_guru", "name": "Glassnode_Guru", "role": "On-Chain Analyst", "background": "Age 27. Runs the most popular on-chain analytics dashboard. 200K followers. Never reveals real name. Has predicted 5 of 7 major BTC tops using SOPR and MVRV. Background in data engineering.", "bias": "neutral", "personality": "Lets data speak. Posts charts, not opinions. Says 'the chain tells us...' rather than 'I believe'. Corrects other analysts' on-chain misinterpretations. Dry humor."},
+                {"id": "zhang_wei", "name": "Zhang Wei", "role": "Bitcoin Miner / Farm Operator", "background": "Age 41. Runs a 500PH/s mining operation in Texas. Previously mined in Sichuan before China ban. Survived 3 bear markets. Knows production costs to the penny. Has 2000+ BTC in cold storage.", "bias": "bullish", "personality": "Practical, no-nonsense. Thinks in terms of production cost floors and hash rate. 'BTC can't stay below miner cost for long.' Quietly confident. Doesn't argue, just states facts about mining economics."},
+                {"id": "peter_gold", "name": "Peter Thornton", "role": "Gold Bug / Crypto Skeptic", "background": "Age 58. 30 years in precious metals trading. Managed gold ETF. Thinks crypto is 'tulip mania 2.0'. Has been calling the top since $1000. Lost clients who went into BTC and outperformed him 50x.", "bias": "strongly_bearish", "personality": "Dismissive, condescending about crypto. Says 'when, not if' about crypto crashing. Compares everything to gold. Gets genuinely angry when people call gold a boomer asset. Uses sarcasm heavily."},
+                {"id": "maria_defi", "name": "Maria Santos", "role": "DeFi Protocol Lead", "background": "Age 30. Lead developer on a top-10 DeFi protocol. Stanford CS grad. Understands tokenomics deeply. Sees BTC as 'digital gold but missing programmability'. Holds 70% ETH, 20% BTC, 10% alts.", "bias": "cautious_bullish", "personality": "Technical, ecosystem-focused. Explains complex things simply. Gets excited about protocol upgrades. Says 'this is actually bullish because...' after bad news. Optimistic but not naive."},
+                {"id": "sarah_chen", "name": "Sarah Chen", "role": "Financial Journalist", "background": "Age 36. Senior crypto correspondent at Bloomberg. Won a Polk Award for investigation into FTX collapse. Has sources at 5 major exchanges. Knows things before they're public but can't always say.", "bias": "neutral", "personality": "Asks probing questions. Challenges bulls AND bears. Says 'but have you considered...' a lot. Drops hints about upcoming news without revealing sources. Professional but with a wry sense of humor."},
             ]
         return [
-            {"id": "fund_manager", "name": "Robert Hayes", "role": "Fund Manager", "background": "20 years in equities", "bias": "cautious_bullish", "personality": "value-oriented, Warren Buffett disciple"},
-            {"id": "day_trader", "name": "Mike Chen", "role": "Day Trader", "background": "Full-time trader, 8 years experience", "bias": "neutral", "personality": "price-action focused, ignores fundamentals"},
-            {"id": "analyst", "name": "Dr. Sarah Kim", "role": "Equity Analyst", "background": "Covers sector for top investment bank", "bias": "neutral", "personality": "rigorous, DCF-driven"},
-            {"id": "retail", "name": "Tom Reddit", "role": "Retail Investor", "background": "Invests savings, follows WallStreetBets", "bias": "bullish", "personality": "momentum-chasing, FOMO-driven"},
-            {"id": "bear", "name": "Dr. Michael Burry II", "role": "Short Seller", "background": "Contrarian fund manager", "bias": "strongly_bearish", "personality": "looks for overvaluation, cites macro risks"},
-            {"id": "insider", "name": "Anonymous Employee", "role": "Industry Insider", "background": "Works at a competitor firm", "bias": "cautious_bearish", "personality": "knows industry dynamics, conservative"},
-            {"id": "macro", "name": "Janet Macro", "role": "Macro Strategist", "background": "Global macro desk at major bank", "bias": "neutral", "personality": "top-down, rates-focused"},
-            {"id": "tech_analyst", "name": "ChartMaster_5000", "role": "Technical Analyst", "background": "CMT certified, 15 years of charting", "bias": "neutral", "personality": "pure technical, Fibonacci devotee"},
+            {"id": "robert_hayes", "name": "Robert Hayes", "role": "Value Fund Manager", "background": "Age 55. 25 years managing a $5B value fund. Outperformed S&P in 18 of 25 years. Berkshire disciple. Only buys below intrinsic value. Missed the entire tech rally of 2020-2021.", "bias": "cautious_bullish", "personality": "Patient, methodical. Talks about 'margin of safety' and 'circle of competence'. Uses annual letter to shareholders language. Slow to change his mind. Cites Buffett and Munger constantly."},
+            {"id": "mike_chen", "name": "Mike Chen", "role": "Day Trader / Price Action", "background": "Age 38. Full-time trader since 2016. Blew up his first account, rebuilt to $2M. Trades only price action and volume. Has a rule: 'if I can't explain the trade in one sentence, I don't take it.'", "bias": "neutral", "personality": "Blunt, aggressive. Only cares about the next 1-5 candles. Says 'the chart doesn't lie' and 'stop overthinking it'. Gets impatient with fundamental analysis. Quick to reverse position."},
+            {"id": "sarah_kim", "name": "Dr. Sarah Kim", "role": "Sell-Side Equity Analyst", "background": "Age 33. Covers the sector at Goldman Sachs. Wharton MBA. Built the DCF model everyone copies. Known for conservative price targets that end up being right 70% of the time.", "bias": "neutral", "personality": "Rigorous, numbers-first. Builds everything from the model up. Says 'at current multiples' and 'assuming normalized margins'. Gets annoyed by analysts who don't show their work."},
+            {"id": "tom_wsb", "name": "Tom 'DiamondHands' Rivera", "role": "Retail Investor / WallStreetBets", "background": "Age 26. Turned $5K into $180K during GameStop, then lost $120K on options. Still up overall. Full-time content creator now. 500K TikTok followers. YOLO mentality.", "bias": "bullish", "personality": "Loud, meme-heavy. Uses rocket emojis and 'to the moon'. Actually quite self-aware about his gambling addiction. Surprisingly likeable. Says 'this is not financial advice' before giving financial advice."},
+            {"id": "michael_short", "name": "Dr. Michael Cross", "role": "Short Seller / Contrarian", "background": "Age 49. Runs a short-focused fund. Made $200M shorting in 2008. Published 3 famous short reports that brought down fraudulent companies. Currently short 12 positions. Investigated by the SEC twice (cleared both times).", "bias": "strongly_bearish", "personality": "Intense, confrontational. Sees fraud and overvaluation everywhere. Says 'this company is a zero' with alarming confidence. Backs every claim with forensic accounting. Secretly respects good companies but never admits it."},
+            {"id": "janet_macro", "name": "Janet Thornburg", "role": "Global Macro Strategist", "background": "Age 44. Chief strategist at a top-3 investment bank. Former Treasury official. Testified before Congress on market structure. Her weekly note moves markets when leaked.", "bias": "neutral", "personality": "Top-down, rates-focused. Sees everything through the lens of the Fed, yields, and dollar strength. Uses 'in the context of' and 'against the backdrop of'. Polished, careful with words because she knows people trade on them."},
+            {"id": "chartmaster", "name": "ChartMaster_5000", "role": "Technical Analyst", "background": "Age 42. CMT certified, 15 years of charting. Called the 2020 COVID bottom within 2 days using Fibonacci extensions. Runs a paid Discord with 8000 members. Has a Fibonacci tattoo.", "bias": "neutral", "personality": "Pure technical. If it's not on the chart, it doesn't exist. Sees patterns everywhere (sometimes too many). Says 'this level needs to hold' with religious conviction. Draws more lines than a geometry textbook."},
+            {"id": "insider_anon", "name": "DeepIndustry", "role": "Anonymous Industry Insider", "background": "Age 39. Works at a direct competitor. Knows the industry dynamics from the inside. Can't reveal identity. Has seen the quarterly numbers competitors don't want public. Trades personal account based on industry knowledge (legally gray area).", "bias": "cautious_bearish", "personality": "Cryptic, drops hints. Says 'I can't say too much but...' and 'people would be surprised by the real numbers'. Conservative in predictions because one wrong leak could identify them. Credible because they've been right before."},
         ]
 
 
@@ -247,21 +255,26 @@ Background: {background}
 Your natural bias: {bias}
 Your personality: {personality}
 
-You are in a live discussion panel about the next price move of {asset_name} ({asset_class}).
+You are on a live trading forum discussing the next price move of {asset_name} ({asset_class}).
+This is round {round_num} of the discussion.
 
 {market_context}
 
 {thread_context}
 
-NOW IT'S YOUR TURN TO SPEAK. Respond naturally as {name} would — in character, with your specific expertise and bias. Keep it conversational (2-4 sentences).
+YOUR TURN TO RESPOND. You MUST:
+1. DIRECTLY RESPOND to 1-2 specific messages from other participants — quote them by name, say why you agree or disagree
+2. Add YOUR unique perspective based on your expertise that others haven't mentioned
+3. Stay FULLY in character as {name} — use your speaking style, your specific knowledge, your natural bias
+4. If your opinion has SHIFTED based on what others said, explain why
+5. If you feel confident, give a SPECIFIC price prediction with your timeframe
 
-If you want to reference specific chart data you don't have, say "I'd like to see the [timeframe] data" and the Chart Support agent will provide it.
-
-You can agree or disagree with other panelists by name. Give a specific price prediction if you feel confident.
+Keep it natural and conversational — like a real forum post (3-5 sentences). Don't be generic.
+If you need specific chart data (e.g., "what does the 4H look like?"), ask for it.
 
 Respond with ONLY valid JSON (no markdown fences):
 {{
-  "content": "Your conversational response as {name}",
+  "content": "Your forum post responding to the discussion",
   "sentiment": 0.5,
   "price_prediction": null,
   "agreed_with": [],
@@ -270,9 +283,9 @@ Respond with ONLY valid JSON (no markdown fences):
 }}
 
 sentiment: -1.0 = very bearish to +1.0 = very bullish
-price_prediction: a specific number or null if not confident enough
-agreed_with / disagreed_with: list of other panelists' names you reference
-data_request: null, or a string like "4H chart for last 2 weeks" if you need data"""
+price_prediction: specific number or null
+agreed_with / disagreed_with: names of people you explicitly referenced
+data_request: null, or "4H chart" / "weekly data" etc."""
 
 
 class DiscussionAgent:
@@ -282,14 +295,16 @@ class DiscussionAgent:
         self.entity = entity
         self.asset_info = asset_info
 
-    def speak(self, market_summary: str, thread_so_far: str, report_excerpt: str = "") -> dict:
+    def speak(self, market_summary: str, thread_so_far: str, report_excerpt: str = "", round_num: int = 1) -> dict:
         market_context = f"## Market Data\n{market_summary[:1500]}"
         if report_excerpt:
             market_context += f"\n\n## Research Report Excerpt\n{report_excerpt[:800]}"
 
         thread_context = ""
         if thread_so_far:
-            thread_context = f"## Discussion So Far\n{thread_so_far}"
+            # Only show the last ~3000 chars to keep context fresh and relevant
+            recent_thread = thread_so_far[-3000:] if len(thread_so_far) > 3000 else thread_so_far
+            thread_context = f"## Recent Discussion\n{recent_thread}"
 
         prompt = DISCUSSION_PROMPT.format(
             name=self.entity["name"],
@@ -301,6 +316,7 @@ class DiscussionAgent:
             asset_class=self.asset_info.get("asset_class", "unknown"),
             market_context=market_context,
             thread_context=thread_context,
+            round_num=round_num,
         )
 
         if not llm_available():
